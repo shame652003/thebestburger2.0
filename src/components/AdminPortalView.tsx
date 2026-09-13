@@ -1,13 +1,12 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import { Restaurante, CodigoVoto, EstadisticasEvento } from '../types';
-import { VotingEngine, FraudLog } from '../services/votingEngine';
+
 import { 
   KeyRound, 
   PlusCircle, 
   QrCode, 
   BarChart3, 
-  Download, 
   ShieldAlert, 
   CheckCircle, 
   RefreshCw, 
@@ -16,12 +15,32 @@ import {
   Lock, 
   LogOut, 
   ArrowLeft, 
-  Eye, 
   Trophy, 
   Check, 
   AlertCircle,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Award,
+  UploadCloud
 } from 'lucide-react';
+import { 
+  BarChart, 
+  Bar, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  ResponsiveContainer
+} from 'recharts';
+import { 
+  addRestauranteFirebase, 
+  getStatsFirebase, 
+  getCodigosFirebase, 
+  getFraudLogsFirebase, 
+  generateBatchCodesFirebase,
+  FraudLogType,
+  convertImageToBase64,
+  addPatrocinadorFirebase
+} from '../services/firebaseService';
 
 interface AdminPortalViewProps {
   restaurantes: Restaurante[];
@@ -41,14 +60,14 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
   const [authError, setAuthError] = useState<string | null>(null);
 
   // Active Admin Tab
-  const [activeTab, setActiveTab] = useState<'stats' | 'generator' | 'entities' | 'gala' | 'architecture'>('stats');
+  const [activeTab, setActiveTab] = useState<'stats' | 'generator' | 'entities' | 'sponsors' | 'gala' | 'architecture'>('stats');
 
   // Generator form state
   const [selectedRestId, setSelectedRestId] = useState<string>(restaurantes[0]?.id || '');
-  const [batchCount, setBatchCount] = useState<number>(10);
+  const [batchCount, setBatchCount] = useState<number>(500);
   const [batchPrefix, setBatchPrefix] = useState<string>('TOCUYO');
-  const [waiterTag, setWaiterTag] = useState<string>('Mesa / Mesero Lote 1');
-  const [newlyGenerated, setNewlyGenerated] = useState<CodigoVoto[]>([]);
+  const [isGeneratingCodes, setIsGeneratingCodes] = useState<boolean>(false);
+  const [printRestId, setPrintRestId] = useState<string | null>(null);
 
   // Register Restaurant form state
   const [newRest, setNewRest] = useState({
@@ -56,24 +75,41 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
     nombreHamburguesa: '',
     slogan: '',
     descripcion: '',
-    ingredientesRaw: 'Carne Angus, Queso de Mano, Tocineta, Salsa Especial',
-    precio: '$8.00',
-    fotoUrl: 'https://images.unsplash.com/photo-1550547660-d9450f859349?auto=format&fit=crop&w=1000&q=80',
-    logoUrl: 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?auto=format&fit=crop&w=200&q=80',
-    direccion: 'Av. Lisandro Alvarado, El Tocuyo',
-    instagram: '@nuevoburger.tocuyo',
+    ingredientesRaw: '',
+    precio: '',
+    direccion: '',
+    instagram: '',
   });
+  const [fotoFile, setFotoFile] = useState<File | null>(null);
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [isUploadingRest, setIsUploadingRest] = useState(false);
   const [registerSuccess, setRegisterSuccess] = useState<boolean>(false);
 
-  // Data
-  const [stats, setStats] = useState<EstadisticasEvento>(VotingEngine.getStats());
-  const [codigos, setCodigos] = useState<CodigoVoto[]>(VotingEngine.getCodigos());
-  const [fraudLogs, setFraudLogs] = useState<FraudLog[]>(VotingEngine.getFraudLogs());
+  // Register Sponsor form state
+  const [newSponsor, setNewSponsor] = useState({
+    nombre: '',
+    tipo: 'Aliado Gourmet' as 'Principal' | 'Aliado Gourmet' | 'Patrocinador Oficial',
+    descripcion: '',
+    url: '',
+  });
+  const [sponsorLogoFile, setSponsorLogoFile] = useState<File | null>(null);
+  const [isUploadingSponsor, setIsUploadingSponsor] = useState(false);
+  const [sponsorSuccess, setSponsorSuccess] = useState<boolean>(false);
 
-  const refreshAllData = () => {
-    setStats(VotingEngine.getStats());
-    setCodigos(VotingEngine.getCodigos());
-    setFraudLogs(VotingEngine.getFraudLogs());
+  // Data
+  const [stats, setStats] = useState<EstadisticasEvento>({
+    totalVotos: 0, totalCodigosGenerados: 0, totalCodigosUsados: 0, promedioGlobal: 0, intentosFraudeBloqueados: 0
+  });
+  const [codigos, setCodigos] = useState<CodigoVoto[]>([]);
+  const [fraudLogs, setFraudLogs] = useState<FraudLogType[]>([]);
+
+  const refreshAllData = async () => {
+    const s = await getStatsFirebase();
+    const c = await getCodigosFirebase();
+    const f = await getFraudLogsFirebase();
+    setStats(s);
+    setCodigos(c);
+    setFraudLogs(f);
   };
 
   const handleLogin = (e: React.FormEvent) => {
@@ -83,7 +119,6 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
     const user = userInput.trim().toLowerCase();
     const pass = passwordInput.trim();
 
-    // Check credentials: admin / tocuyo2025 or admin / admin
     if ((user === 'admin' || user === 'organizador') && (pass === 'tocuyo2025' || pass === 'admin')) {
       setIsAuthenticated(true);
       refreshAllData();
@@ -97,16 +132,32 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
     setPasswordInput('');
   };
 
-  const handleGenerateCodes = (e: React.FormEvent) => {
+  const handleGenerateCodes = async (e: React.FormEvent) => {
     e.preventDefault();
-    const created = VotingEngine.generateBatchCodes({
+    if (!selectedRestId || isGeneratingCodes) return;
+
+    setIsGeneratingCodes(true);
+    const rest = restaurantes.find(r => r.id === selectedRestId);
+    
+    await generateBatchCodesFirebase({
       restauranteId: selectedRestId,
+      restauranteNombre: rest ? rest.nombre : "Desconocido",
       cantidad: Number(batchCount),
-      prefijoLote: batchPrefix.trim().toUpperCase(),
-      identificadorMesa: waiterTag.trim(),
+      prefijoLote: batchPrefix.trim().toUpperCase()
     });
-    setNewlyGenerated(created);
-    refreshAllData();
+    
+    // Refresh to get new codes
+    const c = await getCodigosFirebase();
+    setCodigos(c);
+    const s = await getStatsFirebase();
+    setStats(s);
+
+    // Auto select next available
+    const restSin = restaurantes.filter(r => !c.some(code => code.restauranteId === r.id));
+    if (restSin.length > 0) setSelectedRestId(restSin[0].id);
+    else setSelectedRestId('');
+
+    setIsGeneratingCodes(false);
   };
 
   const handleExportCSV = () => {
@@ -124,30 +175,96 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
     document.body.removeChild(link);
   };
 
-  const handleCreateRestaurante = (e: React.FormEvent) => {
+  const handleCreateRestaurante = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newRest.nombre || !newRest.nombreHamburguesa) return;
+    if (!newRest.nombre || !newRest.nombreHamburguesa || !fotoFile || !logoFile) {
+      alert("Por favor completa todos los campos y sube las 2 imágenes (Logo y Hamburguesa).");
+      return;
+    }
 
-    VotingEngine.addRestaurante({
-      nombre: newRest.nombre,
-      nombreHamburguesa: newRest.nombreHamburguesa,
-      slogan: newRest.slogan,
-      descripcion: newRest.descripcion,
-      ingredientes: newRest.ingredientesRaw.split(',').map((s) => s.trim()),
-      precio: newRest.precio,
-      fotoUrl: newRest.fotoUrl,
-      logoUrl: newRest.logoUrl,
-      direccion: newRest.direccion,
-      instagram: newRest.instagram,
-      activo: true,
-    });
+    setIsUploadingRest(true);
+    
+    try {
+      // Compress and convert to base64
+      const fotoUrl = await convertImageToBase64(fotoFile);
+      const logoUrl = await convertImageToBase64(logoFile, 400); // 400px is enough for a logo
 
-    setRegisterSuccess(true);
-    onRestaurantesUpdated();
-    setTimeout(() => setRegisterSuccess(false), 3000);
+      const nextNumber = restaurantes.length + 1;
+      
+      const success = await addRestauranteFirebase({
+        nombre: newRest.nombre,
+        nombreHamburguesa: newRest.nombreHamburguesa,
+        slogan: newRest.slogan,
+        descripcion: newRest.descripcion,
+        ingredientes: newRest.ingredientesRaw.split(',').map((s) => s.trim()),
+        precio: newRest.precio,
+        fotoUrl,
+        logoUrl,
+        direccion: newRest.direccion,
+        instagram: newRest.instagram.startsWith('@') ? newRest.instagram : `@${newRest.instagram}`,
+        activo: true,
+        votosCount: 0,
+        promedioRating: 0,
+        rankingAnonimoTag: `Participante #${nextNumber}`
+      });
+
+      if (success) {
+        setRegisterSuccess(true);
+        onRestaurantesUpdated();
+        setTimeout(() => setRegisterSuccess(false), 3000);
+        
+        // Limpiar
+        setNewRest({
+          nombre: '', nombreHamburguesa: '', slogan: '', descripcion: '', 
+          ingredientesRaw: '', precio: '', direccion: '', instagram: '',
+        });
+        setFotoFile(null);
+        setLogoFile(null);
+      }
+    } catch (error) {
+      console.error(error);
+      alert("Error al subir el restaurante o las imágenes. Revisa la consola.");
+    } finally {
+      setIsUploadingRest(false);
+    }
   };
 
-  // Sorted list for official gala reveal
+  const handleCreateSponsor = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newSponsor.nombre || !sponsorLogoFile) {
+      alert("Por favor completa el nombre y sube el logo del patrocinador.");
+      return;
+    }
+
+    setIsUploadingSponsor(true);
+    
+    try {
+      const logoUrl = await convertImageToBase64(sponsorLogoFile, 400);
+
+      const success = await addPatrocinadorFirebase({
+        nombre: newSponsor.nombre,
+        tipo: newSponsor.tipo,
+        descripcion: newSponsor.descripcion,
+        url: newSponsor.url,
+        logoUrl
+      });
+
+      if (success) {
+        setSponsorSuccess(true);
+        onRestaurantesUpdated(); // Reusamos esto para que App.tsx haga el refreshData completo
+        setTimeout(() => setSponsorSuccess(false), 3000);
+        
+        setNewSponsor({ nombre: '', tipo: 'Aliado Gourmet', descripcion: '', url: '' });
+        setSponsorLogoFile(null);
+      }
+    } catch (error) {
+      console.error(error);
+      alert("Error al subir el patrocinador.");
+    } finally {
+      setIsUploadingSponsor(false);
+    }
+  };
+
   const sortedRestaurantes = [...restaurantes].sort((a, b) => {
     if (b.promedioRating === a.promedioRating) {
       return b.votosCount - a.votosCount;
@@ -155,14 +272,9 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
     return b.promedioRating - a.promedioRating;
   });
 
-  /* =========================================================
-     VIEW A: LOGIN SCREEN IF NOT AUTHENTICATED
-     ========================================================= */
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-stone-950 text-stone-100 flex flex-col items-center justify-center p-4">
-        
-        {/* Back link */}
         <div className="w-full max-w-md mb-6">
           <button
             onClick={onExitToPublic}
@@ -185,9 +297,6 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
             <h1 className="text-2xl font-black text-stone-100 font-['Cabinet_Grotesk',sans-serif]">
               Portal Administrativo
             </h1>
-            <p className="text-xs text-stone-400">
-              Acceso restringido para el comité organizador del Burger Fest El Tocuyo 2025.
-            </p>
           </div>
 
           {authError && (
@@ -211,7 +320,6 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
                 className="w-full px-4 py-3 rounded-xl bg-stone-950 border border-stone-800 text-stone-100 text-xs sm:text-sm focus:border-amber-500 outline-none transition-all"
               />
             </div>
-
             <div>
               <label className="block text-xs font-bold text-stone-300 uppercase mb-1">
                 Contraseña / Clave Maestra
@@ -225,7 +333,6 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
                 className="w-full px-4 py-3 rounded-xl bg-stone-950 border border-stone-800 text-stone-100 text-xs sm:text-sm focus:border-amber-500 outline-none transition-all"
               />
             </div>
-
             <button
               type="submit"
               className="w-full py-3.5 rounded-xl bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 hover:from-amber-300 hover:to-orange-400 text-stone-950 font-extrabold text-xs sm:text-sm shadow-lg shadow-amber-500/20 transition-all flex items-center justify-center gap-2"
@@ -234,24 +341,62 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
               <span>Ingresar al Panel de Control</span>
             </button>
           </form>
-
-          {/* Quick Credential Helper for Testing */}
-          <div className="p-3.5 rounded-xl bg-stone-950 border border-stone-800 text-[11px] text-stone-400 space-y-1">
-            <span className="font-bold text-stone-300 block">Credenciales de acceso para evaluación:</span>
-            <div className="flex justify-between font-mono text-[10px] text-amber-400/90">
-              <span>Usuario: <strong>admin</strong></span>
-              <span>Clave: <strong>tocuyo2025</strong></span>
-            </div>
-          </div>
         </motion.div>
-
       </div>
     );
   }
 
-  /* =========================================================
-     VIEW B: FULL SUPERADMIN DASHBOARD IF AUTHENTICATED
-     ========================================================= */
+  if (printRestId) {
+    const printRest = restaurantes.find(r => r.id === printRestId);
+    const printCodes = codigos.filter(c => c.restauranteId === printRestId);
+    
+    return (
+      <div className="bg-white text-stone-950 min-h-screen relative pb-20">
+        <style>{`
+          @media print {
+            .no-print { display: none !important; }
+            @page { margin: 0.5cm; }
+            body { background: white; }
+          }
+        `}</style>
+        
+        {/* Floating Controls (Hidden in Print) */}
+        <div className="no-print fixed bottom-6 right-6 flex gap-4 bg-stone-900 p-4 rounded-2xl shadow-2xl border border-stone-700 z-50">
+          <button onClick={() => setPrintRestId(null)} className="px-6 py-2.5 rounded-xl bg-stone-800 text-stone-200 font-bold text-sm hover:bg-stone-700">
+            Volver al Panel
+          </button>
+          <button onClick={() => window.print()} className="px-6 py-2.5 rounded-xl bg-amber-500 text-stone-950 font-black text-sm hover:bg-amber-400 flex items-center gap-2">
+            <QrCode className="w-5 h-5" /> <span>Imprimir PDF / Tickets</span>
+          </button>
+        </div>
+
+        <div className="p-4 sm:p-8">
+          <div className="text-center mb-8 no-print">
+            <h1 className="text-3xl font-black">Tickets para {printRest?.nombre}</h1>
+            <p className="text-stone-500">Configura tu impresora para guardar como PDF o imprimir directamente.</p>
+          </div>
+
+          {/* Tickets Grid */}
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+            {printCodes.map((c, i) => (
+              <div key={c.id} className="ticket border-2 border-stone-800 border-dashed rounded-xl p-4 flex flex-col items-center justify-center text-center bg-stone-50">
+                <div className="font-bold text-xs uppercase tracking-wider text-stone-500 mb-1">Burger Fest El Tocuyo</div>
+                <div className="font-black text-lg leading-tight mb-3">{printRest?.nombre}</div>
+                <div className="bg-white border-2 border-black px-4 py-2 w-full rounded-lg shadow-sm">
+                  <div className="font-mono font-black text-xl tracking-widest">{c.codigo}</div>
+                </div>
+                <div className="text-[10px] text-stone-500 font-semibold mt-3 max-w-[180px]">
+                  Código único e intransferible. Escanea el código QR del restaurante para votar.
+                </div>
+                <div className="text-[9px] text-stone-400 mt-2 font-mono">#{i + 1}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-stone-950 text-stone-100 py-6 sm:py-10">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
@@ -267,9 +412,6 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
                 <h1 className="text-xl sm:text-2xl font-black text-stone-100 font-['Cabinet_Grotesk',sans-serif]">
                   Panel Superadministrador
                 </h1>
-                <span className="text-[10px] font-mono px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold">
-                  AUTORIZADO
-                </span>
               </div>
               <p className="text-xs text-stone-400 mt-0.5">
                 Control de lotes, auditoría antifraude en tiempo real y gestión del festival.
@@ -278,157 +420,122 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
           </div>
 
           <div className="flex items-center gap-2 self-end sm:self-auto">
-            <button
-              onClick={refreshAllData}
-              className="p-2.5 rounded-xl bg-stone-950 text-stone-300 hover:text-amber-400 border border-stone-800 transition-colors"
-              title="Actualizar datos en vivo"
-            >
+            <button onClick={refreshAllData} className="p-2.5 rounded-xl bg-stone-950 text-stone-300 hover:text-amber-400 border border-stone-800 transition-colors">
               <RefreshCw className="w-4 h-4" />
             </button>
-            <button
-              onClick={handleLogout}
-              className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-stone-950 text-stone-400 hover:text-red-400 border border-stone-800 transition-colors text-xs font-semibold"
-            >
-              <LogOut className="w-4 h-4" />
-              <span>Cerrar Sesión</span>
+            <button onClick={handleLogout} className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-stone-950 text-stone-400 hover:text-red-400 border border-stone-800 transition-colors text-xs font-semibold">
+              <LogOut className="w-4 h-4" /> <span>Cerrar Sesión</span>
             </button>
-            <button
-              onClick={onExitToPublic}
-              className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-amber-500 text-stone-950 text-xs font-bold hover:bg-amber-400 transition-all shadow"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              <span>Sitio Público</span>
+            <button onClick={onExitToPublic} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-amber-500 text-stone-950 text-xs font-bold hover:bg-amber-400 transition-all shadow">
+              <ArrowLeft className="w-4 h-4" /> <span>Sitio Público</span>
             </button>
           </div>
         </div>
 
         {/* Navigation Tabs */}
         <div className="flex flex-wrap items-center gap-2 p-2 rounded-2xl bg-stone-900/80 border border-stone-800 text-xs font-bold">
-          <button
-            onClick={() => setActiveTab('stats')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all ${
-              activeTab === 'stats'
-                ? 'bg-amber-500 text-stone-950 shadow'
-                : 'text-stone-400 hover:text-stone-200 hover:bg-stone-950'
-            }`}
-          >
-            <BarChart3 className="w-4 h-4" />
-            <span>Métricas & Fraude</span>
+          <button onClick={() => setActiveTab('stats')} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all ${activeTab === 'stats' ? 'bg-amber-500 text-stone-950 shadow' : 'text-stone-400 hover:bg-stone-950'}`}>
+            <BarChart3 className="w-4 h-4" /> <span>Métricas & Fraude</span>
           </button>
-
-          <button
-            onClick={() => setActiveTab('generator')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all ${
-              activeTab === 'generator'
-                ? 'bg-amber-500 text-stone-950 shadow'
-                : 'text-stone-400 hover:text-stone-200 hover:bg-stone-950'
-            }`}
-          >
-            <QrCode className="w-4 h-4" />
-            <span>Generador de Códigos</span>
+          <button onClick={() => setActiveTab('generator')} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all ${activeTab === 'generator' ? 'bg-amber-500 text-stone-950 shadow' : 'text-stone-400 hover:bg-stone-950'}`}>
+            <QrCode className="w-4 h-4" /> <span>Generador Códigos</span>
           </button>
-
-          <button
-            onClick={() => setActiveTab('gala')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all ${
-              activeTab === 'gala'
-                ? 'bg-amber-500 text-stone-950 shadow'
-                : 'text-stone-400 hover:text-stone-200 hover:bg-stone-950'
-            }`}
-          >
-            <Trophy className="w-4 h-4" />
-            <span>Revelación de Gala Oficial</span>
+          <button onClick={() => setActiveTab('gala')} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all ${activeTab === 'gala' ? 'bg-amber-500 text-stone-950 shadow' : 'text-stone-400 hover:bg-stone-950'}`}>
+            <Trophy className="w-4 h-4" /> <span>Gala Oficial</span>
           </button>
-
-          <button
-            onClick={() => setActiveTab('entities')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all ${
-              activeTab === 'entities'
-                ? 'bg-amber-500 text-stone-950 shadow'
-                : 'text-stone-400 hover:text-stone-200 hover:bg-stone-950'
-            }`}
-          >
-            <Store className="w-4 h-4" />
-            <span>Registro de Restaurantes</span>
+          <button onClick={() => setActiveTab('entities')} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all ${activeTab === 'entities' ? 'bg-amber-500 text-stone-950 shadow' : 'text-stone-400 hover:bg-stone-950'}`}>
+            <Store className="w-4 h-4" /> <span>Restaurantes</span>
           </button>
-
-          <button
-            onClick={() => setActiveTab('architecture')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all ${
-              activeTab === 'architecture'
-                ? 'bg-amber-500 text-stone-950 shadow'
-                : 'text-stone-400 hover:text-stone-200 hover:bg-stone-950'
-            }`}
-          >
-            <Code2 className="w-4 h-4" />
-            <span>Firestore Spec</span>
+          <button onClick={() => setActiveTab('sponsors')} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all ${activeTab === 'sponsors' ? 'bg-amber-500 text-stone-950 shadow' : 'text-stone-400 hover:bg-stone-950'}`}>
+            <Award className="w-4 h-4" /> <span>Patrocinadores</span>
           </button>
         </div>
 
-        {/* TAB 1: METRICS & FRAUD AUDIT */}
+        {/* TAB 1: METRICS */}
         {activeTab === 'stats' && (
           <div className="space-y-6">
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               <div className="p-5 rounded-2xl bg-stone-900/90 border border-stone-800">
                 <div className="text-xs font-semibold text-stone-400 uppercase">Votos Válidos</div>
                 <div className="text-3xl font-black text-amber-400 mt-1">{stats.totalVotos}</div>
-                <div className="text-[10px] text-stone-500 mt-1">Transacciones atómicas completadas</div>
               </div>
-
               <div className="p-5 rounded-2xl bg-stone-900/90 border border-stone-800">
-                <div className="text-xs font-semibold text-stone-400 uppercase">Códigos Impresos</div>
+                <div className="text-xs font-semibold text-stone-400 uppercase">Códigos Generados</div>
                 <div className="text-3xl font-black text-stone-200 mt-1">{stats.totalCodigosGenerados}</div>
-                <div className="text-[10px] text-stone-500 mt-1">En mesas y tickets</div>
               </div>
-
               <div className="p-5 rounded-2xl bg-stone-900/90 border border-stone-800">
                 <div className="text-xs font-semibold text-stone-400 uppercase">Tasa de Canje</div>
                 <div className="text-3xl font-black text-emerald-400 mt-1">
-                  {stats.totalCodigosGenerados > 0 
-                    ? Math.round((stats.totalCodigosUsados / stats.totalCodigosGenerados) * 100) 
-                    : 0}%
+                  {stats.totalCodigosGenerados > 0 ? Math.round((stats.totalCodigosUsados / stats.totalCodigosGenerados) * 100) : 0}%
                 </div>
-                <div className="text-[10px] text-stone-500 mt-1">{stats.totalCodigosUsados} canjeados</div>
               </div>
-
               <div className="p-5 rounded-2xl bg-stone-900/90 border border-red-900/50 bg-red-950/10">
                 <div className="text-xs font-semibold text-red-400 uppercase flex items-center gap-1.5">
                   <ShieldAlert className="w-4 h-4" /> Fraude Prevenido
                 </div>
                 <div className="text-3xl font-black text-red-400 mt-1">{stats.intentosFraudeBloqueados}</div>
-                <div className="text-[10px] text-stone-500 mt-1">Rechazos en base de datos</div>
               </div>
             </div>
 
-            {/* Antifraud Logs */}
-            <div className="p-6 rounded-2xl bg-stone-900/90 border border-stone-800 space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="font-bold text-red-400 text-sm sm:text-base flex items-center gap-2">
-                  <ShieldAlert className="w-5 h-5" />
-                  <span>Auditoría de Intentos de Fraude en Vivo</span>
+            {/* Charts Section */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="p-6 rounded-2xl bg-stone-900/90 border border-stone-800 space-y-4">
+                <h3 className="font-bold text-stone-200 text-sm sm:text-base flex items-center gap-2">
+                  <BarChart3 className="w-5 h-5 text-amber-500" /> <span>Votos por Restaurante</span>
                 </h3>
-                <span className="text-xs text-stone-500 font-mono">Reglas de seguridad activas</span>
+                <div className="h-64 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={sortedRestaurantes} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#292524" vertical={false} />
+                      <XAxis dataKey="nombre" tick={{ fill: '#a8a29e', fontSize: 10 }} tickLine={false} axisLine={false} />
+                      <YAxis tick={{ fill: '#a8a29e', fontSize: 10 }} tickLine={false} axisLine={false} />
+                      <Tooltip 
+                        contentStyle={{ backgroundColor: '#1c1917', borderColor: '#44403c', borderRadius: '12px', fontSize: '12px' }}
+                        itemStyle={{ color: '#fbbf24' }}
+                        cursor={{ fill: '#292524' }}
+                      />
+                      <Bar dataKey="votosCount" name="Votos" fill="#fbbf24" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
               </div>
 
+              <div className="p-6 rounded-2xl bg-stone-900/90 border border-stone-800 space-y-4">
+                <h3 className="font-bold text-stone-200 text-sm sm:text-base flex items-center gap-2">
+                  <Trophy className="w-5 h-5 text-amber-500" /> <span>Calificación Promedio</span>
+                </h3>
+                <div className="h-64 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={sortedRestaurantes} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#292524" vertical={false} />
+                      <XAxis dataKey="nombre" tick={{ fill: '#a8a29e', fontSize: 10 }} tickLine={false} axisLine={false} />
+                      <YAxis domain={[0, 5]} tick={{ fill: '#a8a29e', fontSize: 10 }} tickLine={false} axisLine={false} />
+                      <Tooltip 
+                        contentStyle={{ backgroundColor: '#1c1917', borderColor: '#44403c', borderRadius: '12px', fontSize: '12px' }}
+                        itemStyle={{ color: '#34d399' }}
+                        cursor={{ fill: '#292524' }}
+                      />
+                      <Bar dataKey="promedioRating" name="Rating ★" fill="#34d399" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-6 rounded-2xl bg-stone-900/90 border border-stone-800 space-y-4">
+              <h3 className="font-bold text-red-400 text-sm sm:text-base flex items-center gap-2">
+                <ShieldAlert className="w-5 h-5" /> <span>Auditoría de Intentos de Fraude</span>
+              </h3>
               <div className="space-y-2">
-                {fraudLogs.slice(0, 6).map((log) => (
-                  <div
-                    key={log.id}
-                    className="p-3.5 rounded-xl bg-stone-950 border border-red-900/30 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
-                  >
+                {fraudLogs.length === 0 && <div className="text-stone-500 text-sm">No hay registros de fraude recientes.</div>}
+                {fraudLogs.map((log) => (
+                  <div key={log.id} className="p-3.5 rounded-xl bg-stone-950 border border-red-900/30 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
                     <div className="space-y-1">
                       <div className="flex items-center gap-2">
                         <span className="font-mono font-bold text-red-400">{log.codigoIntentado}</span>
-                        <span className="text-[10px] px-2 py-0.5 rounded bg-red-950 text-red-300 border border-red-800/50">
-                          BLOQUEADO
-                        </span>
+                        <span className="text-[10px] px-2 py-0.5 rounded bg-red-950 text-red-300">BLOQUEADO</span>
                       </div>
                       <p className="text-stone-300 text-xs">{log.motivo}</p>
-                    </div>
-
-                    <div className="text-right text-[11px] text-stone-500 font-mono shrink-0">
-                      <div>IP: {log.ipSimulada}</div>
-                      <div>{log.fecha}</div>
                     </div>
                   </div>
                 ))}
@@ -437,190 +544,138 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
           </div>
         )}
 
-        {/* TAB 2: CODE GENERATOR */}
+        {/* TAB 2: GENERATOR */}
         {activeTab === 'generator' && (
           <div className="space-y-6">
+            
+            {/* Form to generate new codes */}
             <form onSubmit={handleGenerateCodes} className="p-6 rounded-2xl bg-stone-900/90 border border-stone-800 space-y-5">
-              <div className="flex items-center justify-between">
-                <h3 className="font-bold text-stone-200 text-sm sm:text-base">
-                  Generador de Lotes Alfanuméricos para Mesas
-                </h3>
-                <span className="text-xs text-amber-400 font-mono font-bold">TOCUYO-[XXXX]-[XXX]</span>
+              <div className="flex items-center gap-2 mb-2">
+                <PlusCircle className="w-5 h-5 text-emerald-400" />
+                <h3 className="font-bold text-stone-200">Generar Nuevo Lote de Códigos</h3>
               </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-stone-400 mb-1">Restaurante Asignado</label>
+                  <label className="block text-xs font-semibold text-stone-400 mb-1">Seleccionar Restaurante (Sin códigos generados)</label>
                   <select
                     value={selectedRestId}
                     onChange={(e) => setSelectedRestId(e.target.value)}
                     className="w-full px-3 py-2.5 rounded-xl bg-stone-950 border border-stone-800 text-stone-100 text-xs outline-none"
+                    disabled={restaurantes.filter(r => !codigos.some(c => c.restauranteId === r.id)).length === 0}
                   >
-                    {restaurantes.map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.nombre} ({r.nombreHamburguesa})
-                      </option>
+                    {restaurantes.filter(r => !codigos.some(c => c.restauranteId === r.id)).length === 0 && (
+                      <option value="">Todos los restaurantes ya tienen códigos</option>
+                    )}
+                    {restaurantes
+                      .filter(r => !codigos.some(c => c.restauranteId === r.id))
+                      .map((r) => (
+                      <option key={r.id} value={r.id}>{r.nombre}</option>
                     ))}
                   </select>
                 </div>
-
                 <div>
-                  <label className="block text-xs font-semibold text-stone-400 mb-1">Cantidad de Códigos</label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="100"
-                    value={batchCount}
-                    onChange={(e) => setBatchCount(Number(e.target.value))}
-                    className="w-full px-3 py-2.5 rounded-xl bg-stone-950 border border-stone-800 text-stone-100 text-xs outline-none font-mono"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-stone-400 mb-1">Identificador de Turno / Mesero</label>
-                  <input
-                    type="text"
-                    value={waiterTag}
-                    onChange={(e) => setWaiterTag(e.target.value)}
-                    placeholder="Ej: Mesonero Pedro - Turno Noche"
-                    className="w-full px-3 py-2.5 rounded-xl bg-stone-950 border border-stone-800 text-stone-100 text-xs outline-none"
-                  />
+                  <label className="block text-xs font-semibold text-stone-400 mb-1">Cantidad de Códigos (Para todo el evento)</label>
+                  <input type="number" min="1" max="2000" value={batchCount} onChange={(e) => setBatchCount(Number(e.target.value))} className="w-full px-3 py-2.5 rounded-xl bg-stone-950 border border-stone-800 text-stone-100 text-xs outline-none font-mono" />
                 </div>
               </div>
-
-              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
-                <button
-                  type="submit"
-                  className="w-full sm:w-auto px-6 py-3 rounded-xl bg-amber-500 text-stone-950 font-bold text-xs hover:bg-amber-400 transition-all flex items-center justify-center gap-2 shadow"
+              <div className="flex gap-3">
+                <button 
+                  type="submit" 
+                  disabled={isGeneratingCodes || !selectedRestId}
+                  className="px-6 py-3 rounded-xl bg-amber-500 text-stone-950 font-bold text-xs hover:bg-amber-400 transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <PlusCircle className="w-4 h-4" />
-                  <span>Generar {batchCount} Códigos Únicos</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleExportCSV}
-                  className="w-full sm:w-auto px-5 py-3 rounded-xl bg-stone-950 border border-stone-700 text-stone-200 hover:text-white font-bold text-xs flex items-center justify-center gap-2"
-                >
-                  <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
-                  <span>Descargar Todo el Inventario en CSV ({codigos.length})</span>
+                  {isGeneratingCodes ? (
+                    <><RefreshCw className="w-4 h-4 animate-spin" /> <span>Generando Códigos...</span></>
+                  ) : (
+                    <><PlusCircle className="w-4 h-4" /> <span>Generar Lote Único</span></>
+                  )}
                 </button>
               </div>
+              <p className="text-[11px] text-stone-500 font-semibold mt-2">
+                ⚠️ Solo se puede generar códigos UNA VEZ por restaurante. Si requieres más, contacta soporte técnico.
+              </p>
             </form>
 
-            {/* Newly generated preview */}
-            {newlyGenerated.length > 0 && (
-              <div className="p-5 rounded-2xl bg-emerald-950/30 border border-emerald-500/40 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-emerald-400 flex items-center gap-2 text-xs sm:text-sm">
-                    <CheckCircle className="w-4 h-4" />
-                    ¡Se generaron {newlyGenerated.length} códigos con éxito!
-                  </span>
-                  <span className="text-[11px] text-stone-400">Listos para imprimir o entregar en comandas</span>
-                </div>
-
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 font-mono text-xs">
-                  {newlyGenerated.map((c) => (
-                    <div key={c.id} className="p-2.5 rounded-xl bg-stone-950 border border-stone-800 text-amber-300 font-bold text-center">
-                      {c.codigo}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Existing Codes Master Table */}
+            {/* List of Restaurants and their codes */}
             <div className="p-6 rounded-2xl bg-stone-900/90 border border-stone-800 space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="font-bold text-stone-200 text-sm sm:text-base">
-                  Inventario de Códigos Activos ({codigos.length})
+              <div className="flex items-center justify-between border-b border-stone-800 pb-3">
+                <h3 className="font-bold text-stone-200 flex items-center gap-2">
+                  <Code2 className="w-5 h-5 text-amber-500" /> <span>Códigos Generados por Restaurante</span>
                 </h3>
-                <span className="text-xs text-stone-400">
-                  {codigos.filter((c) => !c.usado).length} disponibles • {codigos.filter((c) => c.usado).length} canjeados
-                </span>
               </div>
 
-              <div className="max-h-72 overflow-y-auto space-y-2 pr-1">
-                {codigos.slice(0, 30).map((c) => (
-                  <div
-                    key={c.id}
-                    className="p-3 rounded-xl bg-stone-950 border border-stone-800/80 flex items-center justify-between text-xs"
-                  >
-                    <div className="flex items-center gap-3">
-                      <span className="font-mono font-bold text-amber-400">{c.codigo}</span>
-                      <span className="text-stone-300 font-semibold">{c.restauranteNombre}</span>
-                    </div>
+              <div className="space-y-3">
+                {restaurantes.filter(r => codigos.some(c => c.restauranteId === r.id)).length === 0 && (
+                  <div className="text-stone-500 text-sm">No se han generado códigos para ningún restaurante aún.</div>
+                )}
+                
+                {restaurantes
+                  .filter(r => codigos.some(c => c.restauranteId === r.id))
+                  .map((r) => {
+                    const rCodes = codigos.filter(c => c.restauranteId === r.id);
+                    const usados = rCodes.filter(c => c.usado).length;
+                    const disponibles = rCodes.length - usados;
 
-                    <div className="flex items-center gap-3">
-                      <span className="text-stone-500 font-mono text-[11px]">{c.meseroOMesa}</span>
-                      <span
-                        className={`px-2.5 py-0.5 rounded text-[10px] font-bold ${
-                          c.usado
-                            ? 'bg-red-950/80 text-red-400 border border-red-800/40'
-                            : 'bg-emerald-950/80 text-emerald-400 border border-emerald-800/40'
-                        }`}
-                      >
-                        {c.usado ? 'CANJEADO' : 'DISPONIBLE'}
-                      </span>
-                    </div>
-                  </div>
-                ))}
+                    return (
+                      <div key={r.id} className="p-4 rounded-xl bg-stone-950 border border-stone-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        <div className="flex items-center gap-3">
+                          <img src={r.logoUrl} alt={r.nombre} className="w-10 h-10 rounded-lg object-cover border border-stone-700" />
+                          <div>
+                            <div className="font-bold text-stone-100">{r.nombre}</div>
+                            <div className="text-xs text-stone-400">Total generados: <span className="font-mono text-stone-200">{rCodes.length}</span></div>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-col sm:flex-row items-center sm:items-center gap-4 sm:gap-6 w-full sm:w-auto">
+                          <div className="flex gap-6 text-xs font-semibold w-full sm:w-auto justify-center sm:justify-start">
+                            <div className="flex flex-col items-center">
+                              <span className="text-stone-500 uppercase text-[10px]">Usados</span>
+                              <span className="text-emerald-400 font-mono text-sm">{usados}</span>
+                            </div>
+                            <div className="flex flex-col items-center">
+                              <span className="text-stone-500 uppercase text-[10px]">Disponibles</span>
+                              <span className="text-amber-400 font-mono text-sm">{disponibles}</span>
+                            </div>
+                          </div>
+
+                          <button 
+                            onClick={() => setPrintRestId(r.id)}
+                            className="w-full sm:w-auto px-4 py-2.5 rounded-lg bg-stone-800 text-stone-200 text-xs font-bold hover:bg-stone-700 transition-colors flex justify-center items-center gap-2 border border-stone-700"
+                          >
+                            <QrCode className="w-4 h-4 text-amber-500" />
+                            <span>Ver Tickets PDF</span>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                })}
               </div>
             </div>
+
           </div>
         )}
 
-        {/* TAB 3: OFFICIAL GALA REVEAL (ADMIN ONLY) */}
+        {/* TAB 3: GALA */}
         {activeTab === 'gala' && (
           <div className="p-6 rounded-2xl bg-stone-900/90 border border-amber-500/40 space-y-5">
-            <div className="flex items-center justify-between pb-3 border-b border-stone-800">
-              <div>
-                <h3 className="text-lg font-black text-amber-400 flex items-center gap-2">
-                  <Trophy className="w-5 h-5 text-amber-400" />
-                  <span>Ranking Oficial Desanonimizado (Exclusivo Administrador)</span>
-                </h3>
-                <p className="text-xs text-stone-400 mt-1">
-                  En la vista de clientes este ranking está 100% enmascarado. Aquí puedes ver los nombres reales de los ganadores para la premiación.
-                </p>
-              </div>
-            </div>
-
+            <h3 className="text-lg font-black text-amber-400 flex items-center gap-2">
+              <Trophy className="w-5 h-5" /> <span>Ranking Oficial (Desanonimizado)</span>
+            </h3>
             <div className="space-y-3">
               {sortedRestaurantes.map((r, i) => (
-                <div
-                  key={r.id}
-                  className={`p-4 rounded-2xl border flex items-center justify-between gap-4 ${
-                    i === 0
-                      ? 'bg-amber-500/10 border-amber-500/40'
-                      : 'bg-stone-950 border-stone-800'
-                  }`}
-                >
+                <div key={r.id} className={`p-4 rounded-2xl border flex items-center justify-between gap-4 ${i === 0 ? 'bg-amber-500/10 border-amber-500/40' : 'bg-stone-950 border-stone-800'}`}>
                   <div className="flex items-center gap-3.5">
-                    <span className="font-mono font-black text-base text-amber-400 w-7 text-center">
-                      #{i + 1}
-                    </span>
-                    <img
-                      src={r.logoUrl}
-                      alt={r.nombre}
-                      className="w-10 h-10 rounded-xl object-cover border border-amber-500/40"
-                    />
+                    <span className="font-mono font-black text-base text-amber-400 w-7 text-center">#{i + 1}</span>
+                    <img src={r.logoUrl} alt={r.nombre} className="w-10 h-10 rounded-xl object-cover border border-amber-500/40" />
                     <div>
-                      <div className="font-bold text-stone-100 text-sm sm:text-base">
-                        {r.nombreHamburguesa}
-                      </div>
-                      <div className="text-xs text-stone-400">
-                        {r.nombre} • {r.rankingAnonimoTag}
-                      </div>
+                      <div className="font-bold text-stone-100">{r.nombreHamburguesa}</div>
+                      <div className="text-xs text-stone-400">{r.nombre}</div>
                     </div>
                   </div>
-
-                  <div className="text-right shrink-0">
-                    <div className="text-base font-black text-amber-400 font-mono">
-                      {r.promedioRating.toFixed(2)} ★
-                    </div>
-                    <div className="text-xs text-stone-500">
-                      {r.votosCount} votos
-                    </div>
+                  <div className="text-right">
+                    <div className="text-base font-black text-amber-400 font-mono">{r.votosCount === 0 ? "0.00" : r.promedioRating.toFixed(2)} ★</div>
+                    <div className="text-xs text-stone-500">{r.votosCount} votos</div>
                   </div>
                 </div>
               ))}
@@ -628,147 +683,138 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
           </div>
         )}
 
-        {/* TAB 4: REGISTER NEW RESTAURANT */}
+        {/* TAB 4: ENTITIES (RESTAURANTS) */}
         {activeTab === 'entities' && (
           <div className="p-6 rounded-2xl bg-stone-900/90 border border-stone-800 space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-stone-800">
-              <h3 className="font-bold text-stone-200 text-sm sm:text-base flex items-center gap-2">
-                <Store className="w-5 h-5 text-amber-500" />
-                <span>Registrar Nuevo Restaurante Participante</span>
+            <div className="flex justify-between border-b border-stone-800 pb-3">
+              <h3 className="font-bold text-stone-200 flex items-center gap-2">
+                <Store className="w-5 h-5 text-amber-500" /> <span>Registrar Restaurante</span>
               </h3>
-              {registerSuccess && (
-                <span className="text-xs text-emerald-400 font-bold animate-pulse">
-                  ¡Restaurante guardado exitosamente!
-                </span>
-              )}
+              {registerSuccess && <span className="text-xs text-emerald-400 font-bold">¡Restaurante guardado!</span>}
             </div>
 
             <form onSubmit={handleCreateRestaurante} className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-stone-400 mb-1">Nombre del Restaurante</label>
-                  <input
-                    type="text"
-                    required
-                    value={newRest.nombre}
-                    onChange={(e) => setNewRest({ ...newRest, nombre: e.target.value })}
-                    placeholder="Ej: Asador Tocuyano BBQ"
-                    className="w-full px-4 py-2.5 rounded-xl bg-stone-950 border border-stone-800 text-stone-100 text-xs outline-none"
-                  />
+                  <label className="block text-xs font-semibold text-stone-400 mb-1">Restaurante</label>
+                  <input type="text" required value={newRest.nombre} onChange={(e) => setNewRest({ ...newRest, nombre: e.target.value })} placeholder="Ej: Asador Tocuyano BBQ" className="w-full px-4 py-2.5 rounded-xl bg-stone-950 border border-stone-800 text-stone-100 text-xs outline-none" />
                 </div>
-
                 <div>
-                  <label className="block text-xs font-semibold text-stone-400 mb-1">Nombre de la Hamburguesa</label>
-                  <input
-                    type="text"
-                    required
-                    value={newRest.nombreHamburguesa}
-                    onChange={(e) => setNewRest({ ...newRest, nombreHamburguesa: e.target.value })}
-                    placeholder="Ej: La Morandina Criolla"
-                    className="w-full px-4 py-2.5 rounded-xl bg-stone-950 border border-stone-800 text-stone-100 text-xs outline-none"
-                  />
+                  <label className="block text-xs font-semibold text-stone-400 mb-1">Nombre Hamburguesa</label>
+                  <input type="text" required value={newRest.nombreHamburguesa} onChange={(e) => setNewRest({ ...newRest, nombreHamburguesa: e.target.value })} placeholder="Ej: La Morandina Criolla" className="w-full px-4 py-2.5 rounded-xl bg-stone-950 border border-stone-800 text-stone-100 text-xs outline-none" />
                 </div>
-
                 <div>
                   <label className="block text-xs font-semibold text-stone-400 mb-1">Slogan</label>
-                  <input
-                    type="text"
-                    value={newRest.slogan}
-                    onChange={(e) => setNewRest({ ...newRest, slogan: e.target.value })}
-                    placeholder="Ej: Carne jugosa ahumada a la leña"
-                    className="w-full px-4 py-2.5 rounded-xl bg-stone-950 border border-stone-800 text-stone-100 text-xs outline-none"
-                  />
+                  <input type="text" value={newRest.slogan} onChange={(e) => setNewRest({ ...newRest, slogan: e.target.value })} placeholder="Ej: Carne jugosa ahumada" className="w-full px-4 py-2.5 rounded-xl bg-stone-950 border border-stone-800 text-stone-100 text-xs outline-none" />
                 </div>
-
                 <div>
-                  <label className="block text-xs font-semibold text-stone-400 mb-1">Precio Competencia</label>
-                  <input
-                    type="text"
-                    value={newRest.precio}
-                    onChange={(e) => setNewRest({ ...newRest, precio: e.target.value })}
-                    className="w-full px-4 py-2.5 rounded-xl bg-stone-950 border border-stone-800 text-stone-100 text-xs outline-none font-mono"
-                  />
+                  <label className="block text-xs font-semibold text-stone-400 mb-1">Precio</label>
+                  <input type="text" value={newRest.precio} onChange={(e) => setNewRest({ ...newRest, precio: e.target.value })} placeholder="Ej: $8.00" className="w-full px-4 py-2.5 rounded-xl bg-stone-950 border border-stone-800 text-stone-100 text-xs outline-none" />
                 </div>
-
+                <div>
+                  <label className="block text-xs font-semibold text-stone-400 mb-1">Usuario de Instagram</label>
+                  <input type="text" required value={newRest.instagram} onChange={(e) => setNewRest({ ...newRest, instagram: e.target.value })} placeholder="Ej: @mitocuyoburger" className="w-full px-4 py-2.5 rounded-xl bg-stone-950 border border-stone-800 text-stone-100 text-xs outline-none" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-stone-400 mb-1">Dirección</label>
+                  <input type="text" value={newRest.direccion} onChange={(e) => setNewRest({ ...newRest, direccion: e.target.value })} className="w-full px-4 py-2.5 rounded-xl bg-stone-950 border border-stone-800 text-stone-100 text-xs outline-none" />
+                </div>
                 <div className="sm:col-span-2">
                   <label className="block text-xs font-semibold text-stone-400 mb-1">Ingredientes (Separados por coma)</label>
-                  <input
-                    type="text"
-                    value={newRest.ingredientesRaw}
-                    onChange={(e) => setNewRest({ ...newRest, ingredientesRaw: e.target.value })}
-                    className="w-full px-4 py-2.5 rounded-xl bg-stone-950 border border-stone-800 text-stone-100 text-xs outline-none"
-                  />
+                  <input type="text" value={newRest.ingredientesRaw} onChange={(e) => setNewRest({ ...newRest, ingredientesRaw: e.target.value })} placeholder="Carne, Queso, Tocineta" className="w-full px-4 py-2.5 rounded-xl bg-stone-950 border border-stone-800 text-stone-100 text-xs outline-none" />
                 </div>
-
                 <div className="sm:col-span-2">
-                  <label className="block text-xs font-semibold text-stone-400 mb-1">Descripción Gourmet</label>
-                  <textarea
-                    rows={2}
-                    value={newRest.descripcion}
-                    onChange={(e) => setNewRest({ ...newRest, descripcion: e.target.value })}
-                    placeholder="Describe la técnica de preparación y la propuesta gastronómica..."
-                    className="w-full px-4 py-2.5 rounded-xl bg-stone-950 border border-stone-800 text-stone-100 text-xs outline-none resize-none"
-                  />
+                  <label className="block text-xs font-semibold text-stone-400 mb-1">Descripción</label>
+                  <textarea rows={2} value={newRest.descripcion} onChange={(e) => setNewRest({ ...newRest, descripcion: e.target.value })} className="w-full px-4 py-2.5 rounded-xl bg-stone-950 border border-stone-800 text-stone-100 text-xs outline-none resize-none" />
                 </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-stone-400 mb-1">URL de Foto de Hamburguesa (HQ)</label>
-                  <input
-                    type="url"
-                    value={newRest.fotoUrl}
-                    onChange={(e) => setNewRest({ ...newRest, fotoUrl: e.target.value })}
-                    className="w-full px-4 py-2.5 rounded-xl bg-stone-950 border border-stone-800 text-stone-100 text-xs outline-none"
+                {/* File Uploads for Restaurant */}
+                <div className="p-4 rounded-xl border border-stone-700 bg-stone-950 flex flex-col gap-2">
+                  <label className="block text-xs font-semibold text-stone-400">
+                    <UploadCloud className="w-4 h-4 inline mr-1 text-amber-500" /> Foto de la Hamburguesa (Buena Calidad)
+                  </label>
+                  <input 
+                    type="file" 
+                    accept="image/*"
+                    required
+                    onChange={(e) => setFotoFile(e.target.files ? e.target.files[0] : null)}
+                    className="text-xs text-stone-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-amber-500/20 file:text-amber-400 hover:file:bg-amber-500/30"
                   />
                 </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-stone-400 mb-1">Dirección en El Tocuyo</label>
-                  <input
-                    type="text"
-                    value={newRest.direccion}
-                    onChange={(e) => setNewRest({ ...newRest, direccion: e.target.value })}
-                    className="w-full px-4 py-2.5 rounded-xl bg-stone-950 border border-stone-800 text-stone-100 text-xs outline-none"
+                <div className="p-4 rounded-xl border border-stone-700 bg-stone-950 flex flex-col gap-2">
+                  <label className="block text-xs font-semibold text-stone-400">
+                    <UploadCloud className="w-4 h-4 inline mr-1 text-amber-500" /> Logo del Restaurante
+                  </label>
+                  <input 
+                    type="file" 
+                    accept="image/*"
+                    required
+                    onChange={(e) => setLogoFile(e.target.files ? e.target.files[0] : null)}
+                    className="text-xs text-stone-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-amber-500/20 file:text-amber-400 hover:file:bg-amber-500/30"
                   />
                 </div>
               </div>
 
-              <button
-                type="submit"
-                className="px-6 py-3 rounded-xl bg-amber-500 text-stone-950 font-bold text-xs hover:bg-amber-400 transition-all flex items-center gap-2"
-              >
-                <PlusCircle className="w-4 h-4" />
-                <span>Inscribir Restaurante Oficialmente</span>
+              <button type="submit" disabled={isUploadingRest} className="px-6 py-3 rounded-xl bg-amber-500 text-stone-950 font-bold text-xs hover:bg-amber-400 transition-all flex items-center gap-2 disabled:opacity-50">
+                {isUploadingRest ? 'Subiendo imágenes y guardando...' : 'Inscribir Restaurante y Subir Fotos'}
               </button>
             </form>
           </div>
         )}
 
-        {/* TAB 5: ARCHITECTURE SPEC */}
-        {activeTab === 'architecture' && (
+        {/* TAB 5: SPONSORS */}
+        {activeTab === 'sponsors' && (
           <div className="p-6 rounded-2xl bg-stone-900/90 border border-stone-800 space-y-4">
-            <div className="flex items-center gap-2 text-amber-400 font-bold text-sm sm:text-base">
-              <Code2 className="w-5 h-5" />
-              <span>Especificación de Seguridad y Transacción Firestore</span>
+            <div className="flex justify-between border-b border-stone-800 pb-3">
+              <h3 className="font-bold text-stone-200 flex items-center gap-2">
+                <Award className="w-5 h-5 text-amber-500" /> <span>Registrar Patrocinador</span>
+              </h3>
+              {sponsorSuccess && <span className="text-xs text-emerald-400 font-bold">¡Patrocinador guardado!</span>}
             </div>
-            
-            <p className="text-stone-300 text-xs leading-relaxed">
-              Cada voto ejecuta una transacción atómica verificando que el código no haya sido canjeado. Las reglas de seguridad de Firestore bloquean cualquier escritura que no provenga de un código válido.
-            </p>
 
-            <div className="p-4 rounded-xl bg-stone-950 border border-stone-800 font-mono text-[11px] text-amber-300 overflow-x-auto space-y-1">
-              <div className="text-stone-500">// Atomic Transaction Signature:</div>
-              <div>await runTransaction(db, async (transaction) =&gt; {'{'}</div>
-              <div className="pl-4 text-stone-300">const codeRef = doc(db, 'codigos', codeId);</div>
-              <div className="pl-4 text-stone-300">const codeSnap = await transaction.get(codeRef);</div>
-              <div className="pl-4 text-red-300">if (!codeSnap.exists() || codeSnap.data().usado) throw Error('CÓDIGO_INVÁLIDO');</div>
-              <div className="pl-4 text-emerald-300">transaction.update(codeRef, {'{'} usado: true, usadoEn: serverTimestamp() {'}'});</div>
-              <div className="pl-4 text-emerald-300">transaction.set(votoRef, {'{'} ...votoPayload {'}'});</div>
-              <div className="pl-4 text-emerald-300">transaction.update(restRef, {'{'} votosCount: inc(1), promedioRating: newAvg {'}'});</div>
-              <div>{'}'});</div>
-            </div>
+            <form onSubmit={handleCreateSponsor} className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-stone-400 mb-1">Nombre de la Empresa</label>
+                  <input type="text" required value={newSponsor.nombre} onChange={(e) => setNewSponsor({ ...newSponsor, nombre: e.target.value })} placeholder="Ej: Cerveza Zulia" className="w-full px-4 py-2.5 rounded-xl bg-stone-950 border border-stone-800 text-stone-100 text-xs outline-none" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-stone-400 mb-1">Tipo de Patrocinio</label>
+                  <select 
+                    value={newSponsor.tipo} 
+                    onChange={(e) => setNewSponsor({ ...newSponsor, tipo: e.target.value as any })}
+                    className="w-full px-4 py-2.5 rounded-xl bg-stone-950 border border-stone-800 text-stone-100 text-xs outline-none"
+                  >
+                    <option value="Principal">Principal</option>
+                    <option value="Aliado Gourmet">Aliado Gourmet</option>
+                    <option value="Patrocinador Oficial">Patrocinador Oficial</option>
+                  </select>
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-semibold text-stone-400 mb-1">Descripción Breve</label>
+                  <input type="text" value={newSponsor.descripcion} onChange={(e) => setNewSponsor({ ...newSponsor, descripcion: e.target.value })} placeholder="Apoyando la gastronomía tocuyana" className="w-full px-4 py-2.5 rounded-xl bg-stone-950 border border-stone-800 text-stone-100 text-xs outline-none" />
+                </div>
+                
+                <div className="sm:col-span-2 p-4 rounded-xl border border-stone-700 bg-stone-950 flex flex-col gap-2">
+                  <label className="block text-xs font-semibold text-stone-400">
+                    <UploadCloud className="w-4 h-4 inline mr-1 text-amber-500" /> Logo del Patrocinador
+                  </label>
+                  <input 
+                    type="file" 
+                    accept="image/*"
+                    required
+                    onChange={(e) => setSponsorLogoFile(e.target.files ? e.target.files[0] : null)}
+                    className="text-xs text-stone-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-amber-500/20 file:text-amber-400 hover:file:bg-amber-500/30"
+                  />
+                </div>
+              </div>
+
+              <button type="submit" disabled={isUploadingSponsor} className="px-6 py-3 rounded-xl bg-amber-500 text-stone-950 font-bold text-xs hover:bg-amber-400 transition-all flex items-center gap-2 disabled:opacity-50">
+                {isUploadingSponsor ? 'Subiendo logo y guardando...' : 'Registrar Patrocinador'}
+              </button>
+            </form>
           </div>
         )}
-
       </div>
     </div>
   );

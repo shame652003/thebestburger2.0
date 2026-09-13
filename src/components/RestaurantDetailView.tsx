@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { Restaurante, CriteriosVoto, CodigoVoto } from '../types';
-import { VotingEngine } from '../services/votingEngine';
 import { QRCodeSVG } from 'qrcode.react';
 import { 
   ArrowLeft, 
@@ -21,6 +20,7 @@ import {
   Check,
   Send
 } from 'lucide-react';
+import { emitirVotoConTransaccion } from '../services/firebaseService';
 
 interface RestaurantDetailViewProps {
   restaurante: Restaurante;
@@ -52,17 +52,9 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
   const [votoReciboId, setVotoReciboId] = useState<string | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
 
-  // Available demo codes for this specific restaurant to make testing instantaneous
-  const [availableCodes, setAvailableCodes] = useState<CodigoVoto[]>([]);
-
   useEffect(() => {
     // Window scroll to top on mount
     window.scrollTo({ top: 0, behavior: 'smooth' });
-    
-    // Fetch demo codes for this restaurant
-    const allCodes = VotingEngine.getCodigos();
-    const forThis = allCodes.filter((c) => c.restauranteId === restaurante.id);
-    setAvailableCodes(forThis);
   }, [restaurante.id]);
 
   // Construct direct QR URL for this restaurant
@@ -80,11 +72,6 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
     window.print();
   };
 
-  const handleSelectDemoCode = (code: string) => {
-    setCodigoInput(code);
-    setErrorMessage(null);
-  };
-
   const handleSubmitVote = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
@@ -98,18 +85,20 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
     setIsSubmitting(true);
 
     try {
-      const res = await VotingEngine.executeAtomicVoteTransaction({
-        codigoRaw: cleanCode,
-        restauranteId: restaurante.id,
+      const res = await emitirVotoConTransaccion(
+        cleanCode,
+        restaurante.id,
         ratingGeneral,
         criterios,
-        comentario,
-      });
+        comentario
+      );
 
       if (res.success) {
         setVotoExitoso(true);
-        setVotoReciboId(res.votoId || 'VOTO-' + Math.floor(Math.random() * 90000 + 10000));
+        setVotoReciboId('VOTO-' + Math.floor(Math.random() * 90000 + 10000));
         onVoteCompleted();
+      } else {
+        setErrorMessage(res.message);
       }
     } catch (err: any) {
       setErrorMessage(err.message || 'Error al procesar el voto. Intenta nuevamente.');
@@ -132,10 +121,6 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
             <span>Volver a la Galería de Hamburguesas</span>
           </button>
 
-          <div className="flex items-center gap-2 text-xs font-mono px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400">
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>{restaurante.rankingAnonimoTag}</span>
-          </div>
         </div>
 
         {/* RESTAURANT & BURGER HERO BANNER */}
@@ -226,7 +211,7 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
                 <div className="flex items-center gap-2">
                   <div className="flex items-center gap-1 bg-amber-500 text-stone-950 px-2.5 py-1 rounded-lg font-black">
                     <Star className="w-3.5 h-3.5 fill-stone-950" />
-                    <span>{restaurante.promedioRating.toFixed(2)}</span>
+                    <span>{restaurante.votosCount === 0 ? "0.00" : restaurante.promedioRating.toFixed(2)}</span>
                   </div>
                   <span className="text-stone-400">
                     ({restaurante.votosCount} comensales han calificado)
@@ -349,29 +334,6 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
                       className="w-full px-4 py-3 rounded-2xl bg-stone-950 border border-stone-800 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 outline-none text-amber-400 font-mono text-base tracking-widest font-bold uppercase placeholder:text-stone-600 transition-all"
                     />
                     
-                    {/* Demo Quick-fill buttons to facilitate testing */}
-                    <div className="pt-1">
-                      <span className="text-[11px] text-stone-400 block mb-1.5 font-semibold">
-                        Códigos de prueba para esta mesa:
-                      </span>
-                      <div className="flex flex-wrap gap-2">
-                        {availableCodes.map((c) => (
-                          <button
-                            key={c.id}
-                            type="button"
-                            onClick={() => handleSelectDemoCode(c.codigo)}
-                            className={`px-2.5 py-1 rounded-lg text-[10px] font-mono font-bold transition-all border ${
-                              c.usado
-                                ? 'bg-red-950/40 text-red-400 border-red-900/40 hover:bg-red-900/60'
-                                : 'bg-emerald-950/40 text-emerald-300 border-emerald-800/40 hover:bg-emerald-900/60'
-                            }`}
-                            title={c.usado ? 'Código ya usado (probar antifraude)' : 'Código válido'}
-                          >
-                            {c.codigo} {c.usado ? '(USADO)' : '(DISPONIBLE)'}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
                   </div>
 
                   {/* Step 2: 5-Star General Rating */}

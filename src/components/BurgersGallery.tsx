@@ -64,12 +64,6 @@ export const BurgersGallery: React.FC<BurgersGalleryProps> = ({
                   {rest.precio}
                 </div>
 
-                {/* Anonymous Ranking Mask Tag */}
-                <div className="absolute top-4 left-4 px-3 py-1 rounded-xl bg-stone-950/90 backdrop-blur-md text-amber-400 font-bold text-xs border border-amber-500/30 flex items-center gap-1.5 shadow-md">
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span>{rest.rankingAnonimoTag}</span>
-                </div>
-
                 {/* Restaurant Signature Banner on Bottom of Photo */}
                 <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between text-xs">
                   <div className="flex items-center gap-2 bg-stone-950/90 backdrop-blur-md px-3 py-1.5 rounded-xl border border-stone-800">
@@ -84,7 +78,7 @@ export const BurgersGallery: React.FC<BurgersGalleryProps> = ({
 
                   <div className="flex items-center gap-1 bg-amber-500/90 text-stone-950 px-2.5 py-1 rounded-lg font-extrabold shadow">
                     <Star className="w-3.5 h-3.5 fill-stone-950" />
-                    <span>{rest.promedioRating.toFixed(2)}</span>
+                    <span>{rest.votosCount === 0 ? "0.00" : rest.promedioRating.toFixed(2)}</span>
                     <span className="text-[10px] font-semibold text-stone-900 opacity-80">({rest.votosCount})</span>
                   </div>
                 </div>

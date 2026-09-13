@@ -98,9 +98,6 @@ export const LeaderboardAnonimo: React.FC<LeaderboardAnonimoProps> = ({
                         </h3>
                       </div>
 
-                      <p className="text-xs text-stone-400 mt-0.5">
-                        Código de competencia: <strong className="text-stone-300 font-mono">{item.rankingAnonimoTag}</strong>
-                      </p>
                     </div>
                   </div>
 
@@ -122,7 +119,7 @@ export const LeaderboardAnonimo: React.FC<LeaderboardAnonimoProps> = ({
                       </div>
                       <div className="flex items-center gap-1.5 text-lg sm:text-xl font-black text-amber-400">
                         <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
-                        <span>{item.promedioRating.toFixed(2)}</span>
+                        <span>{item.votosCount === 0 ? "0.00" : item.promedioRating.toFixed(2)}</span>
                       </div>
                     </div>
 
@@ -134,7 +131,7 @@ export const LeaderboardAnonimo: React.FC<LeaderboardAnonimoProps> = ({
                 <div className="mt-4 w-full bg-stone-900 rounded-full h-2 overflow-hidden border border-stone-800">
                   <motion.div
                     initial={{ width: 0 }}
-                    whileInView={{ width: `${Math.min(100, (item.promedioRating / 5) * 100)}%` }}
+                    whileInView={{ width: `${Math.min(100, ((item.votosCount === 0 ? 0 : item.promedioRating) / 5) * 100)}%` }}
                     viewport={{ once: true }}
                     transition={{ duration: 1, ease: 'easeOut' }}
                     className={`h-full rounded-full ${

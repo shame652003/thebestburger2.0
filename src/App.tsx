@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { Navbar } from './components/Navbar';
 import { Hero3D } from './components/Hero3D';
 import { BurgersGallery } from './components/BurgersGallery';
@@ -8,16 +9,17 @@ import { RestaurantDetailView } from './components/RestaurantDetailView';
 import { AdminPortalView } from './components/AdminPortalView';
 import { Footer } from './components/Footer';
 import { Restaurante, Patrocinador, EstadisticasEvento } from './types';
-import { VotingEngine } from './services/votingEngine';
-import { PATROCINADORES_INICIALES } from './data/mockData';
 import { CheckCircle2, AlertCircle } from 'lucide-react';
+import { getRestaurantesFirebase, getStatsFirebase, getPatrocinadoresFirebase } from './services/firebaseService';
 
 export type AppView = 'home' | 'restaurant' | 'admin';
 
 export default function App() {
   const [restaurantes, setRestaurantes] = useState<Restaurante[]>([]);
-  const [patrocinadores] = useState<Patrocinador[]>(PATROCINADORES_INICIALES);
-  const [stats, setStats] = useState<EstadisticasEvento>(VotingEngine.getStats());
+  const [patrocinadores, setPatrocinadores] = useState<Patrocinador[]>([]);
+  const [stats, setStats] = useState<EstadisticasEvento>({
+    totalVotos: 0, totalCodigosGenerados: 0, totalCodigosUsados: 0, promedioGlobal: 0, intentosFraudeBloqueados: 0
+  });
 
   // Views & Routing state
   const [currentView, setCurrentView] = useState<AppView>('home');
@@ -27,9 +29,15 @@ export default function App() {
   const [activeSection, setActiveSection] = useState('hero');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  const refreshData = () => {
-    setRestaurantes(VotingEngine.getRestaurantes());
-    setStats(VotingEngine.getStats());
+  const refreshData = async () => {
+    // 1. Obtener de Firebase
+    const dataRestaurantes = await getRestaurantesFirebase();
+    const dataStats = await getStatsFirebase();
+    const dataPatrocinadores = await getPatrocinadoresFirebase();
+    
+    setRestaurantes(dataRestaurantes);
+    setStats(dataStats);
+    setPatrocinadores(dataPatrocinadores);
   };
 
   // Sync state from URL query parameters (e.g. ?restaurante=id or ?view=admin)
@@ -128,24 +136,54 @@ export default function App() {
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
-    setTimeout(() => {
-      setToastMessage(null);
-    }, 4500);
   };
 
-  // Find currently selected restaurant if in restaurant view
   const currentRestaurant = restaurantes.find((r) => r.id === selectedRestaurantId);
 
   return (
-    <div className="min-h-screen bg-stone-950 text-stone-100 flex flex-col selection:bg-amber-500 selection:text-black">
+    <div className="min-h-screen w-full overflow-x-hidden bg-stone-950 text-stone-100 flex flex-col selection:bg-amber-500 selection:text-black">
       
-      {/* Toast Notification */}
-      {toastMessage && (
-        <div className="fixed bottom-6 right-6 z-50 p-4 rounded-2xl bg-stone-900 border border-amber-500/50 shadow-2xl text-stone-100 text-xs sm:text-sm font-semibold flex items-center gap-3 animate-in fade-in slide-in-from-bottom-5 duration-300">
-          <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
-          <span>{toastMessage}</span>
-        </div>
-      )}
+      {/* SweetAlert-style Center Notification */}
+      <AnimatePresence>
+        {toastMessage && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-stone-950/80 backdrop-blur-sm p-4"
+          >
+            <motion.div 
+              initial={{ scale: 0.5, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.8, opacity: 0 }}
+              transition={{ type: 'spring', damping: 20, stiffness: 300 }}
+              className="w-full max-w-sm rounded-3xl bg-stone-900 border border-emerald-500/50 shadow-[0_0_50px_rgba(16,185,129,0.2)] p-6 sm:p-8 flex flex-col items-center text-center relative overflow-hidden"
+            >
+              {/* Glowing Background Effect */}
+              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-32 h-32 bg-emerald-500/20 rounded-full blur-[40px]" />
+              
+              <div className="w-16 h-16 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 flex items-center justify-center mb-4 relative z-10 shadow-[0_0_20px_rgba(16,185,129,0.4)] animate-pulse">
+                <CheckCircle2 className="w-8 h-8" />
+              </div>
+              
+              <h3 className="text-xl font-black text-stone-100 font-['Cabinet_Grotesk',sans-serif] mb-2 relative z-10">
+                ¡Éxito!
+              </h3>
+              
+              <p className="text-stone-300 text-sm font-semibold relative z-10">
+                {toastMessage}
+              </p>
+
+              <button 
+                onClick={() => setToastMessage(null)}
+                className="mt-6 px-6 py-2.5 rounded-xl bg-emerald-500 text-stone-950 font-bold text-sm w-full hover:bg-emerald-400 transition-colors relative z-10 shadow-lg shadow-emerald-500/20"
+              >
+                Continuar
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Global Public Navbar (shown on home and restaurant views, completely free of admin clutter) */}
       {currentView !== 'admin' && (

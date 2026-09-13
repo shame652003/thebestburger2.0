@@ -61,10 +61,10 @@ export const Navbar: React.FC<NavbarProps> = ({
           <div className="flex items-center gap-2.5">
             <button
               onClick={() => onNavigate('hamburguesas')}
-              className="relative inline-flex items-center justify-center gap-2 px-4 sm:px-5 py-2.5 rounded-xl font-extrabold text-xs sm:text-sm text-stone-950 bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 shadow-md shadow-amber-500/20 hover:shadow-lg hover:shadow-amber-500/30 hover:scale-[1.02] active:scale-[0.98] transition-all"
+              className="relative inline-flex items-center justify-center gap-0 sm:gap-2 p-3 sm:px-5 sm:py-2.5 rounded-xl font-extrabold text-xs sm:text-sm text-stone-950 bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 shadow-md shadow-amber-500/20 hover:shadow-lg hover:shadow-amber-500/30 hover:scale-[1.02] active:scale-[0.98] transition-all"
             >
-              <Flame className="w-4 h-4 text-stone-950 fill-stone-950" />
-              <span>Ver Hamburguesas & Votar</span>
+              <Flame className="w-5 h-5 sm:w-4 sm:h-4 text-stone-950 fill-stone-950" />
+              <span className="hidden sm:inline">Ver Hamburguesas & Votar</span>
             </button>
           </div>
 
