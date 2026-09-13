@@ -1,0 +1,6 @@
+{
+  "name": "La Mejor Hamburguesa de El Tocuyo",
+  "description": "Plataforma web interactiva, responsiva y segura para la votación comercial de La Mejor Hamburguesa de El Tocuyo con prevención de fraude y ranking en tiempo real.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
