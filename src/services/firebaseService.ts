@@ -11,7 +11,8 @@ import {
   query,
   orderBy,
   limit,
-  increment
+  increment,
+  updateDoc
 } from "firebase/firestore";
 import { db, storage } from "../../firebase"; 
 import { Voto, CriteriosVoto, Restaurante, Patrocinador, EstadisticasEvento, CodigoVoto } from "../types";
@@ -356,3 +357,27 @@ export const addPatrocinadorFirebase = async (nuevoPatrocinador: Omit<Patrocinad
     return null;
   }
 };
+
+export const setPatrocinadorPrincipalFirebase = async (patrocinadorId: string): Promise<boolean> => {
+  try {
+    const q = query(collection(db, "patrocinadores"));
+    const snapshot = await getDocs(q);
+    const batch = writeBatch(db);
+    
+    snapshot.forEach((docSnap) => {
+      const isSelected = docSnap.id === patrocinadorId;
+      const data = docSnap.data();
+      batch.update(docSnap.ref, {
+        esPrincipal: isSelected,
+        tipo: isSelected ? 'Principal' : (data.tipo === 'Principal' ? 'Patrocinador Oficial' : (data.tipo || 'Patrocinador Oficial'))
+      });
+    });
+    
+    await batch.commit();
+    return true;
+  } catch (error) {
+    console.error("Error actualizando patrocinador principal en Firebase:", error);
+    return false;
+  }
+};
+

@@ -1,1 +1,20 @@
 @import "tailwindcss";
+
+@theme {
+  --color-brand-red: #A40B03;
+  --color-brand-red-dark: #7A0802;
+  --color-brand-red-hover: #BF0E05;
+  --color-brand-red-light: #C4160E;
+  --color-brand-black: #000000;
+  --color-brand-dark: #0A0A0A;
+  --color-brand-surface: #141414;
+  --color-brand-cream: #FFF9ED;
+  --color-brand-cream-muted: #EADBCE;
+}
+
+@layer base {
+  body {
+    background-color: #000000;
+    color: #FFF9ED;
+  }
+}

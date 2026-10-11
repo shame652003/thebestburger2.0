@@ -20,6 +20,7 @@ export interface Restaurante {
   promedioRating: number;
   rankingAnonimoTag: string; // e.g., "Competidor Alpha", "Hamburguesa #1"
   instagram: string;
+  videoUrl?: string;
   activo: boolean;
 }
 
@@ -51,6 +52,7 @@ export interface Patrocinador {
   tipo: 'Principal' | 'Aliado Gourmet' | 'Patrocinador Oficial';
   descripcion: string;
   url?: string;
+  esPrincipal?: boolean;
 }
 
 export interface EstadisticasEvento {

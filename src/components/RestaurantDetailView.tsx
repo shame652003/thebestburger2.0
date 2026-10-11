@@ -1,24 +1,26 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
 import { Restaurante, CriteriosVoto, CodigoVoto } from '../types';
-import { QRCodeSVG } from 'qrcode.react';
 import { 
   ArrowLeft, 
-  Star, 
+  Star,
   MapPin, 
   Instagram, 
   ShieldCheck, 
   Flame, 
-  QrCode, 
   CheckCircle2, 
   AlertCircle, 
-  Copy, 
-  Printer, 
   Sparkles, 
   Clock, 
   UtensilsCrossed, 
   Check,
-  Send
+  Send,
+  Play,
+  Film,
+  ExternalLink,
+  Award,
+  Volume2,
+  VolumeX
 } from 'lucide-react';
 import { emitirVotoConTransaccion } from '../services/firebaseService';
 
@@ -50,27 +52,15 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [votoExitoso, setVotoExitoso] = useState<boolean>(false);
   const [votoReciboId, setVotoReciboId] = useState<string | null>(null);
-  const [copiedLink, setCopiedLink] = useState(false);
+
+  // Video Player state
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [isMuted, setIsMuted] = useState<boolean>(true);
 
   useEffect(() => {
     // Window scroll to top on mount
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, [restaurante.id]);
-
-  // Construct direct QR URL for this restaurant
-  const directTableUrl = typeof window !== 'undefined'
-    ? `${window.location.origin}${window.location.pathname}?restaurante=${restaurante.id}`
-    : `https://tocuyo-burgerfest.com/?restaurante=${restaurante.id}`;
-
-  const handleCopyLink = () => {
-    navigator.clipboard.writeText(directTableUrl);
-    setCopiedLink(true);
-    setTimeout(() => setCopiedLink(false), 2500);
-  };
-
-  const handlePrintQR = () => {
-    window.print();
-  };
 
   const handleSubmitVote = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -108,48 +98,48 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
   };
 
   return (
-    <div className="min-h-screen bg-stone-950 text-stone-100 py-6 sm:py-10">
+    <div className="min-h-screen bg-black/60 backdrop-blur-[2px] text-[#FFF9ED] py-6 sm:py-10">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8">
         
         {/* Top Breadcrumb & Back Bar */}
         <div className="flex items-center justify-between">
           <button
             onClick={onBack}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-stone-900/90 border border-stone-800 text-stone-300 hover:text-amber-400 hover:border-amber-500/40 transition-all text-xs sm:text-sm font-semibold shadow-md"
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-black border border-stone-800 text-stone-300 hover:text-[#FFF9ED] hover:border-[#A40B03]/60 transition-all text-xs sm:text-sm font-semibold shadow-md"
           >
-            <ArrowLeft className="w-4 h-4" />
-            <span>Volver a la Galería de Hamburguesas</span>
+            <ArrowLeft className="w-4 h-4 text-[#A40B03]" />
+            <span>Volver a Participantes</span>
           </button>
 
         </div>
 
-        {/* RESTAURANT & BURGER HERO BANNER */}
-        <div className="rounded-3xl bg-stone-900/70 border border-stone-800/90 overflow-hidden shadow-2xl">
+        {/* RESTAURANT & DISH HERO BANNER */}
+        <div className="rounded-3xl bg-[#0F0F0F] border border-stone-800/90 overflow-hidden shadow-2xl">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-0">
             
-            {/* Burger High-Res Visual */}
-            <div className="lg:col-span-6 relative aspect-[16/11] lg:aspect-auto overflow-hidden bg-stone-950">
+            {/* Dish High-Res Visual */}
+            <div className="lg:col-span-6 relative aspect-[16/11] lg:aspect-auto overflow-hidden bg-black">
               <img
                 src={restaurante.fotoUrl}
                 alt={restaurante.nombreHamburguesa}
                 className="w-full h-full object-cover"
                 referrerPolicy="no-referrer"
               />
-              <div className="absolute inset-0 bg-gradient-to-t from-stone-950/90 via-transparent to-black/30 lg:hidden" />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-black/30 lg:hidden" />
               
               {/* Badge: Price */}
-              <div className="absolute top-4 left-4 px-3.5 py-1.5 rounded-xl bg-amber-500 text-stone-950 font-black text-sm sm:text-base shadow-lg shadow-black/50">
+              <div className="absolute top-4 left-4 px-3.5 py-1.5 rounded-xl bg-[#A40B03] text-[#FFF9ED] font-black text-sm sm:text-base shadow-lg shadow-black/60 border border-[#FFF9ED]/20">
                 {restaurante.precio}
               </div>
 
               {/* Verified badge */}
-              <div className="absolute bottom-4 left-4 px-3 py-1.5 rounded-xl bg-stone-950/90 backdrop-blur-md border border-stone-800 flex items-center gap-2 text-xs text-stone-200">
-                <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                <span>Hamburguesa Oficial Inscrita 2025</span>
+              <div className="absolute bottom-4 left-4 px-3 py-1.5 rounded-xl bg-black/90 backdrop-blur-md border border-[#A40B03]/40 flex items-center gap-2 text-xs text-[#FFF9ED]">
+                <ShieldCheck className="w-4 h-4 text-[#A40B03]" />
+                <span>Creación Oficial Food Fest 2026</span>
               </div>
             </div>
 
-            {/* Burger Information & Story */}
+            {/* Dish Information & Story */}
             <div className="lg:col-span-6 p-6 sm:p-8 lg:p-10 flex flex-col justify-between space-y-6">
               
               <div className="space-y-4">
@@ -158,26 +148,26 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
                   <img
                     src={restaurante.logoUrl}
                     alt={restaurante.nombre}
-                    className="w-12 h-12 rounded-2xl object-cover border-2 border-amber-500/50 shadow-md"
+                    className="w-12 h-12 rounded-2xl object-cover border-2 border-[#A40B03]/60 shadow-md"
                     referrerPolicy="no-referrer"
                   />
                   <div>
-                    <h2 className="text-sm uppercase tracking-wider text-amber-500 font-extrabold">
+                    <h2 className="text-sm uppercase tracking-wider text-[#A40B03] font-black">
                       {restaurante.nombre}
                     </h2>
                     <div className="flex items-center gap-2 text-xs text-stone-400">
-                      <MapPin className="w-3.5 h-3.5 text-stone-500" />
+                      <MapPin className="w-3.5 h-3.5 text-[#A40B03]" />
                       <span>{restaurante.direccion}</span>
                     </div>
                   </div>
                 </div>
 
-                {/* Burger Title & Slogan */}
+                {/* Dish Title & Slogan */}
                 <div>
-                  <h1 className="text-3xl sm:text-4xl font-black text-stone-100 font-['Cabinet_Grotesk',sans-serif] tracking-tight">
+                  <h1 className="text-3xl sm:text-4xl font-black text-[#FFF9ED] font-['Cabinet_Grotesk',sans-serif] tracking-tight">
                     {restaurante.nombreHamburguesa}
                   </h1>
-                  <p className="text-amber-400/90 text-sm sm:text-base font-semibold italic mt-1">
+                  <p className="text-[#FFF9ED]/90 text-sm sm:text-base font-semibold italic mt-1">
                     "{restaurante.slogan}"
                   </p>
                 </div>
@@ -190,14 +180,14 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
                 {/* Ingredients Pills */}
                 <div>
                   <div className="text-xs font-semibold text-stone-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                    <UtensilsCrossed className="w-3.5 h-3.5 text-amber-500" />
+                    <UtensilsCrossed className="w-3.5 h-3.5 text-[#A40B03]" />
                     <span>Ingredientes Seleccionados:</span>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {restaurante.ingredientes.map((ing, i) => (
                       <span
                         key={i}
-                        className="px-3 py-1 rounded-xl bg-stone-950 border border-stone-800 text-stone-200 text-xs font-medium"
+                        className="px-3 py-1 rounded-xl bg-black border border-stone-800 text-stone-200 text-xs font-medium"
                       >
                         {ing}
                       </span>
@@ -206,15 +196,15 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
                 </div>
               </div>
 
-              {/* Stats & Social Bar */}
+              {/* Competition Status & Social Bar */}
               <div className="pt-4 border-t border-stone-800/80 flex flex-wrap items-center justify-between gap-4 text-xs text-stone-400">
                 <div className="flex items-center gap-2">
-                  <div className="flex items-center gap-1 bg-amber-500 text-stone-950 px-2.5 py-1 rounded-lg font-black">
-                    <Star className="w-3.5 h-3.5 fill-stone-950" />
-                    <span>{restaurante.votosCount === 0 ? "0.00" : restaurante.promedioRating.toFixed(2)}</span>
+                  <div className="flex items-center gap-1.5 bg-[#A40B03]/20 text-[#FFF9ED] px-3 py-1.5 rounded-xl font-bold border border-[#A40B03]/40 text-xs">
+                    <Flame className="w-3.5 h-3.5 text-[#A40B03]" />
+                    <span>Creación Oficial en Competencia</span>
                   </div>
-                  <span className="text-stone-400">
-                    ({restaurante.votosCount} comensales han calificado)
+                  <span className="text-stone-500 text-[11px] font-medium hidden sm:inline">
+                    • Votación Secreta Auditada
                   </span>
                 </div>
 
@@ -222,9 +212,9 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
                   href={`https://instagram.com/${restaurante.instagram.replace('@', '')}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center gap-1.5 text-stone-300 hover:text-amber-400 transition-colors"
+                  className="flex items-center gap-1.5 text-stone-300 hover:text-[#A40B03] transition-colors"
                 >
-                  <Instagram className="w-4 h-4 text-pink-500" />
+                  <Instagram className="w-4 h-4 text-[#A40B03]" />
                   <span className="font-semibold">{restaurante.instagram}</span>
                 </a>
               </div>
@@ -239,17 +229,17 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
           
           {/* COLUMN 1: DEDICATED IN-PAGE VOTING FORM (NO MODAL) */}
           <div className="lg:col-span-7">
-            <div className="p-6 sm:p-8 rounded-3xl bg-stone-900/90 border border-amber-500/30 shadow-2xl relative overflow-hidden space-y-6">
+            <div className="p-6 sm:p-8 rounded-3xl bg-[#0F0F0F] border border-[#A40B03]/30 shadow-2xl relative overflow-hidden space-y-6">
               
               {/* Header */}
               <div className="flex items-start justify-between gap-4 pb-4 border-b border-stone-800">
                 <div>
-                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-red-500/15 text-red-400 border border-red-500/30 text-xs font-bold uppercase mb-2">
-                    <Flame className="w-3.5 h-3.5" />
-                    <span>Votación Oficial de Comensal</span>
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-[#A40B03]/20 text-[#FFF9ED] border border-[#A40B03]/40 text-xs font-bold uppercase mb-2">
+                    <Flame className="w-3.5 h-3.5 text-[#A40B03]" />
+                    <span>Votación Oficial de Comensal • Food Fest 2026</span>
                   </div>
-                  <h3 className="text-xl sm:text-2xl font-black text-stone-100 font-['Cabinet_Grotesk',sans-serif]">
-                    Califica esta Hamburguesa
+                  <h3 className="text-xl sm:text-2xl font-black text-[#FFF9ED] font-['Cabinet_Grotesk',sans-serif]">
+                    Califica esta Creación Gastronómica
                   </h3>
                   <p className="text-xs text-stone-400 mt-1">
                     Cada código de mesa es de un solo uso. Tu voto actualiza el ranking en una transacción atómica protegida.
@@ -262,24 +252,24 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
                 <motion.div
                   initial={{ opacity: 0, scale: 0.95 }}
                   animate={{ opacity: 1, scale: 1 }}
-                  className="p-6 rounded-2xl bg-stone-950 border border-emerald-500/50 text-center space-y-4"
+                  className="p-6 rounded-2xl bg-black border border-[#A40B03]/60 text-center space-y-4"
                 >
-                  <div className="w-16 h-16 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 flex items-center justify-center mx-auto">
-                    <CheckCircle2 className="w-8 h-8" />
+                  <div className="w-16 h-16 rounded-full bg-[#A40B03]/20 text-[#FFF9ED] border border-[#A40B03]/50 flex items-center justify-center mx-auto shadow-[0_0_20px_rgba(164,11,3,0.3)]">
+                    <CheckCircle2 className="w-8 h-8 text-[#A40B03]" />
                   </div>
 
                   <div>
-                    <h4 className="text-xl font-bold text-stone-100">
+                    <h4 className="text-xl font-bold text-[#FFF9ED]">
                       ¡Tu Voto ha Sido Registrado!
                     </h4>
                     <p className="text-xs text-stone-400 mt-1">
-                      Has evaluado exitosamente a <strong className="text-amber-400">{restaurante.nombreHamburguesa}</strong>.
+                      Has evaluado exitosamente a <strong className="text-[#FFF9ED]">{restaurante.nombreHamburguesa}</strong>.
                     </p>
                   </div>
 
-                  <div className="p-3.5 rounded-xl bg-stone-900 border border-stone-800 font-mono text-xs text-stone-300 inline-block">
+                  <div className="p-3.5 rounded-xl bg-[#141414] border border-stone-800 font-mono text-xs text-stone-300 inline-block">
                     <span>Recibo Criptográfico: </span>
-                    <strong className="text-emerald-400">{votoReciboId}</strong>
+                    <strong className="text-[#A40B03]">{votoReciboId}</strong>
                   </div>
 
                   <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3">
@@ -289,13 +279,13 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
                         setCodigoInput('');
                         setComentario('');
                       }}
-                      className="px-5 py-2.5 rounded-xl bg-stone-900 border border-stone-700 text-stone-200 text-xs font-bold hover:bg-stone-800"
+                      className="px-5 py-2.5 rounded-xl bg-black border border-stone-700 text-[#FFF9ED] text-xs font-bold hover:bg-stone-900"
                     >
                       Evaluar con otro código
                     </button>
                     <button
                       onClick={onBack}
-                      className="px-6 py-2.5 rounded-xl bg-amber-500 text-stone-950 text-xs font-bold hover:bg-amber-400 shadow-md"
+                      className="px-6 py-2.5 rounded-xl bg-[#A40B03] text-[#FFF9ED] text-xs font-bold hover:bg-[#BF0E05] shadow-md border border-[#FFF9ED]/20"
                     >
                       Ver Ranking en Vivo
                     </button>
@@ -322,8 +312,8 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
 
                   {/* Step 1: Security Code Input */}
                   <div className="space-y-2">
-                    <label className="block text-xs font-bold uppercase tracking-wider text-amber-400">
-                      1. Código Único de Mesa (Entregado por tu mesero)
+                    <label className="block text-xs font-bold uppercase tracking-wider text-[#FFF9ED]">
+                      1. Código Único de Mesa (Entregado en tu consumo)
                     </label>
                     <input
                       type="text"
@@ -331,14 +321,13 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
                       value={codigoInput}
                       onChange={(e) => setCodigoInput(e.target.value.toUpperCase())}
                       placeholder="Ej: TOCUYO-ALFA-901"
-                      className="w-full px-4 py-3 rounded-2xl bg-stone-950 border border-stone-800 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 outline-none text-amber-400 font-mono text-base tracking-widest font-bold uppercase placeholder:text-stone-600 transition-all"
+                      className="w-full px-4 py-3 rounded-2xl bg-black border border-stone-800 focus:border-[#A40B03] focus:ring-1 focus:ring-[#A40B03] outline-none text-[#FFF9ED] font-mono text-base tracking-widest font-bold uppercase placeholder:text-stone-600 transition-all"
                     />
-                    
                   </div>
 
                   {/* Step 2: 5-Star General Rating */}
                   <div className="space-y-2 pt-2 border-t border-stone-800">
-                    <label className="block text-xs font-bold uppercase tracking-wider text-amber-400">
+                    <label className="block text-xs font-bold uppercase tracking-wider text-[#FFF9ED]">
                       2. Calificación Global ({ratingGeneral} de 5 estrellas)
                     </label>
                     <div className="flex items-center gap-2">
@@ -354,13 +343,13 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
                           <Star
                             className={`w-8 h-8 transition-colors ${
                               (hoverRating !== null ? star <= hoverRating : star <= ratingGeneral)
-                                ? 'fill-amber-400 text-amber-400 drop-shadow-[0_0_8px_rgba(251,191,36,0.5)]'
+                                ? 'fill-[#A40B03] text-[#A40B03] drop-shadow-[0_0_8px_rgba(164,11,3,0.5)]'
                                 : 'text-stone-700 hover:text-stone-500'
                             }`}
                           />
                         </button>
                       ))}
-                      <span className="ml-2 font-bold text-lg text-amber-400 font-mono">
+                      <span className="ml-2 font-bold text-lg text-[#FFF9ED] font-mono">
                         {ratingGeneral}.0
                       </span>
                     </div>
@@ -368,16 +357,16 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
 
                   {/* Step 3: Criterios Gastronómicos */}
                   <div className="space-y-4 pt-2 border-t border-stone-800">
-                    <label className="block text-xs font-bold uppercase tracking-wider text-amber-400">
+                    <label className="block text-xs font-bold uppercase tracking-wider text-[#FFF9ED]">
                       3. Criterios Técnicos del Festival
                     </label>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       {/* Sabor de la Carne */}
-                      <div className="p-3 rounded-xl bg-stone-950 border border-stone-800 space-y-1.5">
+                      <div className="p-3 rounded-xl bg-black border border-stone-800 space-y-1.5">
                         <div className="flex justify-between text-xs font-semibold text-stone-300">
-                          <span>Sabor & Punto de la Carne</span>
-                          <span className="text-amber-400 font-mono">{criterios.saborCarne}/5</span>
+                          <span>Sabor & Punto del Plato</span>
+                          <span className="text-[#A40B03] font-bold font-mono">{criterios.saborCarne}/5</span>
                         </div>
                         <input
                           type="range"
@@ -385,15 +374,15 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
                           max="5"
                           value={criterios.saborCarne}
                           onChange={(e) => setCriterios({ ...criterios, saborCarne: Number(e.target.value) })}
-                          className="w-full accent-amber-500 cursor-pointer"
+                          className="w-full accent-[#A40B03] cursor-pointer"
                         />
                       </div>
 
                       {/* Calidad del Pan */}
-                      <div className="p-3 rounded-xl bg-stone-950 border border-stone-800 space-y-1.5">
+                      <div className="p-3 rounded-xl bg-black border border-stone-800 space-y-1.5">
                         <div className="flex justify-between text-xs font-semibold text-stone-300">
-                          <span>Calidad & Textura del Pan</span>
-                          <span className="text-amber-400 font-mono">{criterios.calidadPan}/5</span>
+                          <span>Textura & Presentación</span>
+                          <span className="text-[#A40B03] font-bold font-mono">{criterios.calidadPan}/5</span>
                         </div>
                         <input
                           type="range"
@@ -401,15 +390,15 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
                           max="5"
                           value={criterios.calidadPan}
                           onChange={(e) => setCriterios({ ...criterios, calidadPan: Number(e.target.value) })}
-                          className="w-full accent-amber-500 cursor-pointer"
+                          className="w-full accent-[#A40B03] cursor-pointer"
                         />
                       </div>
 
                       {/* Salsas y Toppings */}
-                      <div className="p-3 rounded-xl bg-stone-950 border border-stone-800 space-y-1.5">
+                      <div className="p-3 rounded-xl bg-black border border-stone-800 space-y-1.5">
                         <div className="flex justify-between text-xs font-semibold text-stone-300">
-                          <span>Salsas & Toppings</span>
-                          <span className="text-amber-400 font-mono">{criterios.salsasYToppings}/5</span>
+                          <span>Salsas & Acompañamientos</span>
+                          <span className="text-[#A40B03] font-bold font-mono">{criterios.salsasYToppings}/5</span>
                         </div>
                         <input
                           type="range"
@@ -417,15 +406,15 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
                           max="5"
                           value={criterios.salsasYToppings}
                           onChange={(e) => setCriterios({ ...criterios, salsasYToppings: Number(e.target.value) })}
-                          className="w-full accent-amber-500 cursor-pointer"
+                          className="w-full accent-[#A40B03] cursor-pointer"
                         />
                       </div>
 
                       {/* Creatividad */}
-                      <div className="p-3 rounded-xl bg-stone-950 border border-stone-800 space-y-1.5">
+                      <div className="p-3 rounded-xl bg-black border border-stone-800 space-y-1.5">
                         <div className="flex justify-between text-xs font-semibold text-stone-300">
-                          <span>Creatividad & Toque Tocuyano</span>
-                          <span className="text-amber-400 font-mono">{criterios.creatividad}/5</span>
+                          <span>Creatividad & Toque Autóctono</span>
+                          <span className="text-[#A40B03] font-bold font-mono">{criterios.creatividad}/5</span>
                         </div>
                         <input
                           type="range"
@@ -433,7 +422,7 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
                           max="5"
                           value={criterios.creatividad}
                           onChange={(e) => setCriterios({ ...criterios, creatividad: Number(e.target.value) })}
-                          className="w-full accent-amber-500 cursor-pointer"
+                          className="w-full accent-[#A40B03] cursor-pointer"
                         />
                       </div>
                     </div>
@@ -449,7 +438,7 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
                       value={comentario}
                       onChange={(e) => setComentario(e.target.value)}
                       placeholder="Comparte tu experiencia gourmet con el restaurante..."
-                      className="w-full px-4 py-3 rounded-2xl bg-stone-950 border border-stone-800 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 outline-none text-stone-200 text-xs sm:text-sm placeholder:text-stone-600 resize-none"
+                      className="w-full px-4 py-3 rounded-2xl bg-black border border-stone-800 focus:border-[#A40B03] focus:ring-1 focus:ring-[#A40B03] outline-none text-stone-200 text-xs sm:text-sm placeholder:text-stone-600 resize-none"
                     />
                   </div>
 
@@ -457,16 +446,16 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
                   <button
                     type="submit"
                     disabled={isSubmitting}
-                    className="w-full py-4 rounded-2xl font-extrabold text-stone-950 bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 hover:from-amber-300 hover:to-orange-400 shadow-xl shadow-amber-500/20 hover:shadow-amber-500/30 transition-all flex items-center justify-center gap-2 text-sm sm:text-base disabled:opacity-50"
+                    className="w-full py-4 rounded-2xl font-extrabold text-[#FFF9ED] bg-gradient-to-r from-[#A40B03] via-[#BF0E05] to-[#7A0802] border border-[#A40B03]/60 hover:shadow-2xl hover:shadow-[#A40B03]/40 transition-all flex items-center justify-center gap-2 text-sm sm:text-base disabled:opacity-50"
                   >
                     {isSubmitting ? (
                       <span className="flex items-center gap-2">
-                        <span className="animate-spin rounded-full h-4 w-4 border-2 border-stone-950 border-t-transparent" />
+                        <span className="animate-spin rounded-full h-4 w-4 border-2 border-[#FFF9ED] border-t-transparent" />
                         <span>Validando código en Firestore...</span>
                       </span>
                     ) : (
                       <>
-                        <Send className="w-5 h-5 text-stone-950" />
+                        <Send className="w-5 h-5 text-[#FFF9ED]" />
                         <span>Confirmar y Enviar Voto Oficial</span>
                       </>
                     )}
@@ -478,87 +467,167 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
             </div>
           </div>
 
-          {/* COLUMN 2: QR TABLE CARD GENERATOR FOR PHYSICAL TABLES */}
+          {/* COLUMN 2: CÓMO SE PREPARA LA HAMBURGUESA (VIDEO / REEL SHOWCASE) */}
           <div className="lg:col-span-5 space-y-6">
             
-            <div className="p-6 sm:p-7 rounded-3xl bg-stone-900/80 border border-stone-800 shadow-xl space-y-5">
+            <div className="p-6 sm:p-7 rounded-3xl bg-[#0F0F0F] border border-stone-800 shadow-xl space-y-5">
               <div className="flex items-center gap-2.5 pb-3 border-b border-stone-800">
-                <div className="p-2 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/30">
-                  <QrCode className="w-5 h-5" />
+                <div className="p-2 rounded-xl bg-[#A40B03]/15 text-[#A40B03] border border-[#A40B03]/30">
+                  <Film className="w-5 h-5" />
                 </div>
                 <div>
-                  <h4 className="font-extrabold text-stone-100 text-base">
-                    QR Oficial de Mesa
+                  <h4 className="font-extrabold text-[#FFF9ED] text-base flex items-center gap-2">
+                    <span>Cómo se Prepara</span>
+                    <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-[#A40B03]/20 text-[#FFF9ED] border border-[#A40B03]/40">
+                      En Vivo
+                    </span>
                   </h4>
                   <p className="text-xs text-stone-400">
-                    Apunta a este restaurante directamente
+                    El ritual artesanal de {restaurante.nombre}
                   </p>
                 </div>
               </div>
 
-              {/* Printable Table Card Visual */}
-              <div className="p-5 rounded-2xl bg-white text-stone-950 flex flex-col items-center text-center space-y-3 shadow-md">
-                <div className="text-[10px] font-black uppercase tracking-widest text-orange-600">
-                  BURGER FEST EL TOCUYO 2025
-                </div>
+              {/* Video Player or Interactive Reel Frame */}
+              <div className="space-y-4">
+                {restaurante.videoUrl && !restaurante.videoUrl.includes('instagram.com') ? (
+                  <div className="relative rounded-2xl overflow-hidden bg-black border border-stone-800 shadow-2xl aspect-video group">
+                    <video
+                      ref={videoRef}
+                      autoPlay
+                      muted={isMuted}
+                      loop
+                      playsInline
+                      controls
+                      poster={restaurante.fotoUrl}
+                      className="w-full h-full object-cover"
+                    >
+                      <source src={restaurante.videoUrl} type="video/mp4" />
+                      Tu navegador no soporta reproducción de video.
+                    </video>
 
-                <div className="p-3 bg-stone-50 rounded-2xl border border-stone-200">
-                  <QRCodeSVG
-                    value={directTableUrl}
-                    size={170}
-                    level="H"
-                    includeMargin={true}
-                  />
-                </div>
+                    {/* Autoplay & Audio indicator overlay */}
+                    <div className="absolute top-3 left-3 z-10 px-2.5 py-1 rounded-full bg-black/75 backdrop-blur-md border border-[#A40B03]/50 text-[10px] font-bold text-[#FFF9ED] flex items-center gap-1.5 shadow-md pointer-events-none">
+                      <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                      <span>Reproducción Automática</span>
+                    </div>
 
-                <div className="space-y-0.5">
-                  <div className="font-black text-stone-900 text-sm">
-                    {restaurante.nombreHamburguesa}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (videoRef.current) {
+                          videoRef.current.muted = !isMuted;
+                          setIsMuted(!isMuted);
+                        }
+                      }}
+                      className="absolute top-3 right-3 z-10 px-2.5 py-1.5 rounded-xl bg-black/75 backdrop-blur-md text-[#FFF9ED] hover:bg-black/90 border border-stone-700 text-xs font-bold flex items-center gap-1.5 transition-all shadow-lg cursor-pointer"
+                    >
+                      {isMuted ? <VolumeX className="w-3.5 h-3.5 text-[#A40B03]" /> : <Volume2 className="w-3.5 h-3.5 text-emerald-400" />}
+                      <span>{isMuted ? 'Activar Sonido' : 'Silenciar'}</span>
+                    </button>
                   </div>
-                  <div className="text-xs text-stone-600 font-semibold">
-                    {restaurante.nombre}
+                ) : (
+                  <div className="relative rounded-2xl overflow-hidden group border border-[#A40B03]/30 aspect-video bg-black shadow-2xl">
+                    <img
+                      src={restaurante.fotoUrl}
+                      alt={restaurante.nombreHamburguesa}
+                      className="w-full h-full object-cover opacity-60 group-hover:scale-105 group-hover:opacity-40 transition-all duration-700"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent" />
+                    
+                    {/* Live teaser badge */}
+                    <div className="absolute top-3 left-3 z-10 px-2.5 py-1 rounded-full bg-black/75 backdrop-blur-md border border-[#A40B03]/50 text-[10px] font-bold text-[#FFF9ED] flex items-center gap-1.5 shadow-md">
+                      <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                      <span>Reel de Preparación Oficial</span>
+                    </div>
+
+                    <a
+                      href={restaurante.videoUrl || `https://instagram.com/${restaurante.instagram.replace('@', '')}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="absolute inset-0 flex flex-col items-center justify-center p-4 text-center cursor-pointer"
+                    >
+                      <div className="w-16 h-16 rounded-full bg-[#A40B03] text-[#FFF9ED] flex items-center justify-center shadow-[0_0_25px_rgba(164,11,3,0.6)] group-hover:scale-110 group-hover:bg-[#C4160E] transition-all mb-3 border border-[#FFF9ED]/30">
+                        <Play className="w-7 h-7 fill-[#FFF9ED] ml-1" />
+                      </div>
+                      <span className="text-[#FFF9ED] font-black text-sm tracking-wide drop-shadow-md">
+                        {restaurante.videoUrl ? 'Ver Video / Reel en Instagram' : 'Ver Reel de Preparación en Instagram'}
+                      </span>
+                      <span className="text-stone-300 text-xs mt-1.5 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/70 backdrop-blur-md border border-stone-700">
+                        <Instagram className="w-3.5 h-3.5 text-[#A40B03]" />
+                        <span>{restaurante.instagram}</span>
+                        <ExternalLink className="w-3 h-3 text-stone-400" />
+                      </span>
+                    </a>
+                  </div>
+                )}
+
+                {/* Culinary Process Cards (3 Steps) */}
+                <div className="space-y-2.5 pt-1">
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-stone-400 flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-[#A40B03]" />
+                    <span>Secretos de la Receta:</span>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-2 text-xs">
+                    <div className="p-3 rounded-xl bg-black border border-stone-800/80 flex items-start gap-3">
+                      <div className="w-6 h-6 rounded-lg bg-[#A40B03]/20 text-[#FFF9ED] font-black text-[11px] flex items-center justify-center shrink-0 border border-[#A40B03]/30">
+                        1
+                      </div>
+                      <div>
+                        <div className="font-bold text-[#FFF9ED]">Corte & Molienda Artesanal</div>
+                        <div className="text-stone-400 text-[11px] leading-relaxed">
+                          Blend selecto de carne fresca seleccionada con el balance justo de jugosidad y ternura.
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="p-3 rounded-xl bg-black border border-stone-800/80 flex items-start gap-3">
+                      <div className="w-6 h-6 rounded-lg bg-[#A40B03]/20 text-[#FFF9ED] font-black text-[11px] flex items-center justify-center shrink-0 border border-[#A40B03]/30">
+                        2
+                      </div>
+                      <div>
+                        <div className="font-bold text-[#FFF9ED]">Parrilla & Fuego Vivo</div>
+                        <div className="text-stone-400 text-[11px] leading-relaxed">
+                          Sellado a fuego vivo para lograr costra Maillard crocante y centro suave.
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="p-3 rounded-xl bg-black border border-stone-800/80 flex items-start gap-3">
+                      <div className="w-6 h-6 rounded-lg bg-[#A40B03]/20 text-[#FFF9ED] font-black text-[11px] flex items-center justify-center shrink-0 border border-[#A40B03]/30">
+                        3
+                      </div>
+                      <div>
+                        <div className="font-bold text-[#FFF9ED]">Montaje & Salsa Insignia</div>
+                        <div className="text-stone-400 text-[11px] leading-relaxed">
+                          Pan tostado con mantequilla artesanal y coronado con sus ingredientes exclusivos.
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
-                <div className="text-[11px] font-bold text-stone-500 bg-stone-100 px-3 py-1 rounded-full">
-                  Escanea para votar en tu mesa
-                </div>
-              </div>
-
-              {/* URL & Action controls */}
-              <div className="space-y-3 text-xs">
-                <div className="p-3 rounded-xl bg-stone-950 border border-stone-800 font-mono text-[11px] text-stone-400 break-all select-all">
-                  {directTableUrl}
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    type="button"
-                    onClick={handleCopyLink}
-                    className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-stone-950 border border-stone-800 hover:border-amber-500/40 text-stone-200 font-bold transition-all"
-                  >
-                    {copiedLink ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4 text-amber-400" />}
-                    <span>{copiedLink ? 'Copiado' : 'Copiar URL'}</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={handlePrintQR}
-                    className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-stone-950 border border-stone-800 hover:border-amber-500/40 text-stone-200 font-bold transition-all"
-                  >
-                    <Printer className="w-4 h-4 text-amber-400" />
-                    <span>Imprimir Mesa</span>
-                  </button>
-                </div>
+                {/* Direct Action Link */}
+                <a
+                  href={restaurante.videoUrl || `https://instagram.com/${restaurante.instagram.replace('@', '')}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-[#A40B03] hover:bg-[#BF0E05] text-[#FFF9ED] font-extrabold text-xs transition-all shadow-md shadow-[#A40B03]/20 border border-[#FFF9ED]/20"
+                >
+                  <Instagram className="w-4 h-4 text-[#FFF9ED]" />
+                  <span>Seguir a {restaurante.nombre} en Instagram</span>
+                  <ExternalLink className="w-3.5 h-3.5 text-[#FFF9ED]/80 ml-1" />
+                </a>
               </div>
 
             </div>
 
             {/* Antifraud Guarantee Notice */}
-            <div className="p-5 rounded-3xl bg-stone-950 border border-stone-800 text-xs space-y-2.5 text-stone-400">
-              <div className="flex items-center gap-2 text-stone-200 font-bold">
-                <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                <span>Garantía de Voto Transparente</span>
+            <div className="p-5 rounded-3xl bg-black border border-stone-800 text-xs space-y-2.5 text-stone-400">
+              <div className="flex items-center gap-2 text-[#FFF9ED] font-bold">
+                <ShieldCheck className="w-4 h-4 text-[#A40B03]" />
+                <span>Garantía de Voto Transparente • Food Fest 2026</span>
               </div>
               <p className="leading-relaxed">
                 El sistema valida en microsegundos que el código pertenezca a la orden de <strong>{restaurante.nombre}</strong> y que no haya sido utilizado antes. Los votos dobles son bloqueados y registrados en auditoría.
