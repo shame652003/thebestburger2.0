@@ -182,7 +182,7 @@ export const Hero3D: React.FC<Hero3DProps> = ({
                   className="absolute -top-4 -right-4 px-4 py-2 rounded-2xl bg-gradient-to-r from-[#A40B03] to-[#7A0802] text-[#FFF9ED] font-black text-xs uppercase tracking-wider shadow-lg shadow-[#A40B03]/50 flex items-center gap-1.5 border border-[#FFF9ED]/30"
                 >
                   <Flame className="w-4 h-4 fill-[#FFF9ED]" />
-                  <span>Copa Food Fest 2026</span>
+                  <span>Placa Food Fest 2026</span>
                 </div>
 
                 {/* Main Image Stage with Dynamic Lighting */}
@@ -222,7 +222,7 @@ export const Hero3D: React.FC<Hero3DProps> = ({
                         La Batalla Gastronómica
                       </h3>
                       <p className="text-xs text-stone-400">
-                        Evaluación en vivo por los comensales
+                        Los Mejores Restaurantes compiten por la Placa
                       </p>
                     </div>
                     <div className="px-3 py-1 rounded-xl bg-[#A40B03]/20 border border-[#A40B03]/50 flex items-center justify-center text-[#FFF9ED] font-black text-xs">

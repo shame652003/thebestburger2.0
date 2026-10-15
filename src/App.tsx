@@ -7,13 +7,21 @@ import { LeaderboardAnonimo } from './components/LeaderboardAnonimo';
 import { SponsorsSection } from './components/SponsorsSection';
 import { RestaurantDetailView } from './components/RestaurantDetailView';
 import { AdminPortalView } from './components/AdminPortalView';
+import { SponsorCheckinView } from './components/SponsorCheckinView';
 import { Footer } from './components/Footer';
 import { LavaLampBackground } from './components/LavaLampBackground';
-import { Restaurante, Patrocinador, EstadisticasEvento } from './types';
+import { Restaurante, Patrocinador, EstadisticasEvento, UsuarioAuth } from './types';
 import { CheckCircle2, AlertCircle } from 'lucide-react';
-import { getRestaurantesFirebase, getStatsFirebase, getPatrocinadoresFirebase } from './services/firebaseService';
+import { 
+  getRestaurantesFirebase, 
+  getStatsFirebase, 
+  getPatrocinadoresFirebase,
+  loginWithGoogle,
+  logoutFirebase,
+  onAuthChange 
+} from './services/firebaseService';
 
-export type AppView = 'home' | 'restaurant' | 'admin';
+export type AppView = 'home' | 'restaurant' | 'admin' | 'sponsor_checkin';
 
 export default function App() {
   const [restaurantes, setRestaurantes] = useState<Restaurante[]>([]);
@@ -22,9 +30,13 @@ export default function App() {
     totalVotos: 0, totalCodigosGenerados: 0, totalCodigosUsados: 0, promedioGlobal: 0, intentosFraudeBloqueados: 0
   });
 
+  // Current logged in Google user
+  const [currentUser, setCurrentUser] = useState<UsuarioAuth | null>(null);
+
   // Views & Routing state
   const [currentView, setCurrentView] = useState<AppView>('home');
   const [selectedRestaurantId, setSelectedRestaurantId] = useState<string | null>(null);
+  const [selectedSponsorId, setSelectedSponsorId] = useState<string | null>(null);
 
   // Active section tracker for public view
   const [activeSection, setActiveSection] = useState('hero');
@@ -41,22 +53,31 @@ export default function App() {
     setPatrocinadores(dataPatrocinadores);
   };
 
-  // Sync state from URL query parameters (e.g. ?restaurante=id or ?view=admin)
+  // Sync state from URL query parameters (e.g. ?restaurante=id, ?patrocinador=id o ?view=admin)
   const syncFromUrl = () => {
-    if (typeof window === 'undefined') return;
-    const params = new URLSearchParams(window.location.search);
-    const restParam = params.get('restaurante');
-    const viewParam = params.get('view');
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const restParam = params.get('restaurante');
+      const viewParam = params.get('view');
+      const sponsorParam = params.get('patrocinador') || (viewParam === 'patrocinador' ? params.get('id') : null);
 
-    if (restParam) {
-      setSelectedRestaurantId(restParam);
-      setCurrentView('restaurant');
-    } else if (viewParam === 'admin') {
-      setCurrentView('admin');
-      setSelectedRestaurantId(null);
-    } else {
-      setCurrentView('home');
-      setSelectedRestaurantId(null);
+      if (sponsorParam) {
+        setSelectedSponsorId(sponsorParam);
+        setCurrentView('sponsor_checkin');
+        setSelectedRestaurantId(null);
+      } else if (restParam) {
+        setSelectedRestaurantId(restParam);
+        setCurrentView('restaurant');
+        setSelectedSponsorId(null);
+      } else if (viewParam === 'admin') {
+        setCurrentView('admin');
+        setSelectedRestaurantId(null);
+        setSelectedSponsorId(null);
+      } else {
+        setCurrentView('home');
+        setSelectedRestaurantId(null);
+        setSelectedSponsorId(null);
+      }
     }
   };
 
@@ -64,13 +85,21 @@ export default function App() {
     refreshData();
     syncFromUrl();
 
+    // Listen to Google Authentication status
+    const unsubscribeAuth = onAuthChange((user) => {
+      setCurrentUser(user);
+    });
+
     // Handle browser Back / Forward buttons
     const handlePopState = () => {
       syncFromUrl();
     };
 
     window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      unsubscribeAuth();
+    };
   }, []);
 
   const navigateToHome = (targetSectionId?: string) => {
@@ -79,6 +108,7 @@ export default function App() {
     }
     setCurrentView('home');
     setSelectedRestaurantId(null);
+    setSelectedSponsorId(null);
 
     if (targetSectionId) {
       setTimeout(() => {
@@ -187,11 +217,24 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Global Public Navbar (shown on home and restaurant views, completely free of admin clutter) */}
+      {/* Global Public Navbar (shown on all public views, completely free of admin clutter) */}
       {currentView !== 'admin' && (
         <Navbar
           activeSection={activeSection}
           onNavigate={handleNavigateSection}
+          currentUser={currentUser}
+          onLogin={async () => {
+            const res = await loginWithGoogle();
+            if (res.success && res.user) {
+              showToast(`¡Bienvenido, ${res.user.displayName}! Has iniciado sesión.`);
+            } else if (res.error) {
+              showToast(res.error);
+            }
+          }}
+          onLogout={async () => {
+            await logoutFirebase();
+            showToast('Has cerrado sesión correctamente.');
+          }}
         />
       )}
 
@@ -202,6 +245,9 @@ export default function App() {
             restaurante={currentRestaurant}
             onBack={() => navigateToHome('hamburguesas')}
             onVoteCompleted={handleVoteSuccess}
+            currentUser={currentUser}
+            onLogin={loginWithGoogle}
+            onLogout={logoutFirebase}
           />
         </div>
       )}
@@ -235,7 +281,35 @@ export default function App() {
         </div>
       )}
 
-      {/* VIEW 3: MAIN PUBLIC FESTIVAL LANDING (Clients Only: Hero, Burgers, Leaderboard, Sponsors) */}
+      {/* VIEW 3: SPONSOR STORE CHECK-IN & INVOICE AUDIT (Store QR Scan) */}
+      {currentView === 'sponsor_checkin' && (
+        <div className="relative z-10 flex-1">
+          {selectedSponsorId ? (
+            <SponsorCheckinView
+              patrocinadorId={selectedSponsorId}
+              patrocinadores={patrocinadores}
+              restaurantes={restaurantes}
+              onBackToHome={() => navigateToHome('hero')}
+            />
+          ) : (
+            <div className="min-h-[60vh] flex flex-col items-center justify-center p-6 text-center space-y-4">
+              <AlertCircle className="w-12 h-12 text-[#A40B03]" />
+              <h2 className="text-xl font-bold text-[#FFF9ED]">Código QR de Tienda Requerido</h2>
+              <p className="text-xs text-stone-400 max-w-md">
+                Debes escanear el código QR ubicado en la tienda del patrocinador oficial para registrar tus compras.
+              </p>
+              <button
+                onClick={() => navigateToHome('patrocinadores')}
+                className="px-6 py-2.5 rounded-xl bg-[#A40B03] text-[#FFF9ED] text-xs font-bold hover:bg-[#BF0E05] transition-all border border-[#A40B03]/40 shadow-md cursor-pointer"
+              >
+                Ver Patrocinadores Oficiales
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* VIEW 4: MAIN PUBLIC FESTIVAL LANDING (Clients Only: Hero, Burgers, Leaderboard, Sponsors) */}
       {currentView === 'home' && (
         <main className="flex-1 relative z-10">
           {/* 1. Hero Presentation Section */}

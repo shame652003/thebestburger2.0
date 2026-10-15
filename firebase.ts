@@ -2,6 +2,7 @@ import { initializeApp } from "firebase/app";
 import { getAnalytics } from "firebase/analytics";
 import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
+import { getAuth, GoogleAuthProvider } from "firebase/auth";
 
 const firebaseConfig = {
   apiKey: "AIzaSyBgLdheL9XwDsw5Nxg813xDPFMkPj_9CNU",
@@ -25,4 +26,11 @@ const db = getFirestore(app);
 // Inicializar Storage (Imágenes)
 const storage = getStorage(app);
 
-export { app, analytics, db, storage };
+// Inicializar Authentication (Google / Gmail)
+const auth = getAuth(app);
+const googleProvider = new GoogleAuthProvider();
+googleProvider.setCustomParameters({
+  prompt: 'select_account'
+});
+
+export { app, analytics, db, storage, auth, googleProvider };

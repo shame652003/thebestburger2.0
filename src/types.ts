@@ -22,6 +22,25 @@ export interface Restaurante {
   instagram: string;
   videoUrl?: string;
   activo: boolean;
+  descalificado?: boolean;
+  motivoDescalificacion?: string;
+  usuarioAcceso?: string;
+  claveAcceso?: string;
+}
+
+export interface RegistroCompraPatrocinador {
+  id: string;
+  patrocinadorId: string;
+  patrocinadorNombre: string;
+  restauranteId: string;
+  restauranteNombre: string;
+  restauranteNombreHamburguesa: string;
+  descripcion: string;
+  monto?: string;
+  numeroFactura?: string;
+  facturaFotoUrl?: string;
+  fecha: string;
+  creadoEn?: any;
 }
 
 export interface CodigoVoto {
@@ -35,6 +54,23 @@ export interface CodigoVoto {
   meseroOMesa?: string;
 }
 
+export interface UsuarioAuth {
+  uid: string;
+  email: string | null;
+  displayName: string | null;
+  photoURL?: string | null;
+}
+
+export interface VotoUsuarioRegistro {
+  id: string; // Composite key: `${userId}_${restauranteId}`
+  userId: string;
+  userEmail: string;
+  userName: string;
+  restauranteId: string;
+  codigo: string;
+  creadoEn: any;
+}
+
 export interface Voto {
   id: string;
   codigo: string;
@@ -42,6 +78,9 @@ export interface Voto {
   ratingGeneral: number;
   criterios: CriteriosVoto;
   comentario?: string;
+  userId?: string;
+  userEmail?: string;
+  userName?: string;
   creadoEn: string;
 }
 

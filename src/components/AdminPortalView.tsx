@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
-import { Restaurante, CodigoVoto, EstadisticasEvento } from '../types';
+import { Restaurante, CodigoVoto, EstadisticasEvento, Patrocinador, RegistroCompraPatrocinador } from '../types';
 
 import { QRCodeSVG } from 'qrcode.react';
 
@@ -29,7 +29,20 @@ import {
   X,
   Film,
   Crown,
-  Star
+  Star,
+  Edit3,
+  Wand2,
+  ShieldX,
+  ShieldCheck,
+  AlertTriangle,
+  Receipt,
+  Eye,
+  Calendar,
+  DollarSign,
+  UserCheck,
+  FileText,
+  Camera,
+  ShoppingBag
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -42,6 +55,8 @@ import {
 } from 'recharts';
 import { 
   addRestauranteFirebase, 
+  updateRestauranteFirebase,
+  toggleDescalificarRestauranteFirebase,
   getStatsFirebase, 
   getCodigosFirebase, 
   getFraudLogsFirebase, 
@@ -49,7 +64,9 @@ import {
   FraudLogType,
   convertImageToBase64,
   addPatrocinadorFirebase,
-  setPatrocinadorPrincipalFirebase
+  setPatrocinadorPrincipalFirebase,
+  updateRestauranteVideoFirebase,
+  getComprasPatrocinadoresFirebase
 } from '../services/firebaseService';
 import logoBlanco from '../img/logo blanco.svg';
 import logoRed from '../img/logo.svg';
@@ -74,7 +91,7 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
   const [authError, setAuthError] = useState<string | null>(null);
 
   // Active Admin Tab
-  const [activeTab, setActiveTab] = useState<'stats' | 'generator' | 'entities' | 'sponsors' | 'gala' | 'architecture'>('stats');
+  const [activeTab, setActiveTab] = useState<'stats' | 'generator' | 'entities' | 'sponsors' | 'gala' | 'architecture' | 'sponsor_audit'>('stats');
 
   // Generator form state
   const [selectedRestId, setSelectedRestId] = useState<string>(restaurantes[0]?.id || '');
@@ -98,11 +115,152 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
     direccion: '',
     instagram: '',
     videoUrl: '',
+    usuarioAcceso: '',
+    claveAcceso: ''
   });
   const [fotoFile, setFotoFile] = useState<File | null>(null);
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [isUploadingRest, setIsUploadingRest] = useState(false);
   const [registerSuccess, setRegisterSuccess] = useState<boolean>(false);
+
+  // Edit Video Modal state
+  const [editingVideoRest, setEditingVideoRest] = useState<Restaurante | null>(null);
+  const [editVideoUrlInput, setEditVideoUrlInput] = useState('');
+  const [isSavingVideo, setIsSavingVideo] = useState(false);
+  const [videoSaveSuccess, setVideoSaveSuccess] = useState(false);
+
+  // Edit Restaurant Full Information Modal state
+  const [editingRest, setEditingRest] = useState<Restaurante | null>(null);
+  const [editRestForm, setEditRestForm] = useState({
+    nombre: '',
+    nombreHamburguesa: '',
+    slogan: '',
+    descripcion: '',
+    ingredientesRaw: '',
+    precio: '',
+    direccion: '',
+    instagram: '',
+    videoUrl: '',
+    usuarioAcceso: '',
+    claveAcceso: ''
+  });
+  const [editFotoFile, setEditFotoFile] = useState<File | null>(null);
+  const [editLogoFile, setEditLogoFile] = useState<File | null>(null);
+  const [isSavingEditRest, setIsSavingEditRest] = useState(false);
+  const [editRestSuccess, setEditRestSuccess] = useState(false);
+
+  // Disqualification Security Modal state (Código Secreto: 0987654321)
+  const [disqualifyTargetRest, setDisqualifyTargetRest] = useState<Restaurante | null>(null);
+  const [disqualifyCodeInput, setDisqualifyCodeInput] = useState('');
+  const [disqualifyReasonInput, setDisqualifyReasonInput] = useState('');
+  const [disqualifyError, setDisqualifyError] = useState<string | null>(null);
+  const [isSubmittingDisqualify, setIsSubmittingDisqualify] = useState(false);
+  const [disqualifySuccessMsg, setDisqualifySuccessMsg] = useState<string | null>(null);
+
+  // Sponsor Store QR Modal state
+  const [selectedSponsorQr, setSelectedSponsorQr] = useState<Patrocinador | null>(null);
+  const [copiedSponsorUrl, setCopiedSponsorUrl] = useState(false);
+
+  // Sponsor Invoices Audit state
+  const [comprasAuditList, setComprasAuditList] = useState<RegistroCompraPatrocinador[]>([]);
+  const [isLoadingComprasAudit, setIsLoadingComprasAudit] = useState(false);
+  const [selectedAuditImage, setSelectedAuditImage] = useState<string | null>(null);
+  const [auditFilterSponsor, setAuditFilterSponsor] = useState<string>('todos');
+  const [auditFilterRest, setAuditFilterRest] = useState<string>('todos');
+
+  const fetchComprasAudit = async () => {
+    setIsLoadingComprasAudit(true);
+    try {
+      const data = await getComprasPatrocinadoresFirebase();
+      setComprasAuditList(data);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsLoadingComprasAudit(false);
+    }
+  };
+
+  // --- HELPERS DE FORMATEO Y CAPITALIZACIÓN AUTOMÁTICA ---
+  const toTitleCase = (text: string): string => {
+    return text
+      .trim()
+      .replace(/\s+/g, ' ')
+      .toLowerCase()
+      .split(' ')
+      .map(word => word ? word.charAt(0).toUpperCase() + word.slice(1) : '')
+      .join(' ');
+  };
+
+  const toSentenceCase = (text: string): string => {
+    const trimmed = text.trim().replace(/\s+/g, ' ');
+    if (!trimmed) return '';
+    return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+  };
+
+  const formatInstagramHandle = (input: string): string => {
+    let clean = input.trim();
+    const urlMatch = clean.match(/(?:instagram\.com\/)([a-zA-Z0-9._]+)/i);
+    if (urlMatch) {
+      return `@${urlMatch[1]}`;
+    }
+    if (clean && !clean.startsWith('@')) {
+      return `@${clean}`;
+    }
+    return clean;
+  };
+
+  const formatPrice = (price: string): string => {
+    let clean = price.trim().replace(/\s+/g, '');
+    if (!clean) return '$8.00';
+    if (!clean.startsWith('$')) {
+      const num = parseFloat(clean);
+      if (!isNaN(num)) return `$${num.toFixed(2)}`;
+      return `$${clean}`;
+    } else {
+      const num = parseFloat(clean.replace('$', ''));
+      if (!isNaN(num)) return `$${num.toFixed(2)}`;
+      return clean;
+    }
+  };
+
+  const formatIngredientesRaw = (raw: string): string => {
+    return raw
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean)
+      .map(s => s.charAt(0).toUpperCase() + s.slice(1))
+      .join(', ');
+  };
+
+  const autoFormatNewRest = () => {
+    setNewRest(prev => ({
+      ...prev,
+      nombre: toTitleCase(prev.nombre),
+      nombreHamburguesa: toTitleCase(prev.nombreHamburguesa),
+      slogan: toSentenceCase(prev.slogan),
+      precio: formatPrice(prev.precio),
+      instagram: formatInstagramHandle(prev.instagram),
+      direccion: toSentenceCase(prev.direccion),
+      ingredientesRaw: formatIngredientesRaw(prev.ingredientesRaw),
+      descripcion: toSentenceCase(prev.descripcion),
+      videoUrl: prev.videoUrl.trim()
+    }));
+  };
+
+  const autoFormatEditRest = () => {
+    setEditRestForm(prev => ({
+      ...prev,
+      nombre: toTitleCase(prev.nombre),
+      nombreHamburguesa: toTitleCase(prev.nombreHamburguesa),
+      slogan: toSentenceCase(prev.slogan),
+      precio: formatPrice(prev.precio),
+      instagram: formatInstagramHandle(prev.instagram),
+      direccion: toSentenceCase(prev.direccion),
+      ingredientesRaw: formatIngredientesRaw(prev.ingredientesRaw),
+      descripcion: toSentenceCase(prev.descripcion),
+      videoUrl: prev.videoUrl.trim()
+    }));
+  };
 
   // Register Sponsor form state
   const [newSponsor, setNewSponsor] = useState({
@@ -130,6 +288,7 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
     setStats(s);
     setCodigos(c);
     setFraudLogs(f);
+    fetchComprasAudit();
   };
 
   const handleLogin = (e: React.FormEvent) => {
@@ -211,6 +370,9 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
 
       const nextNumber = restaurantes.length + 1;
       
+      const defaultUser = newRest.nombre.toLowerCase().replace(/[^a-z0-9]/g, '');
+      const defaultPass = 'burger2026';
+
       const success = await addRestauranteFirebase({
         nombre: newRest.nombre,
         nombreHamburguesa: newRest.nombreHamburguesa,
@@ -223,6 +385,8 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
         direccion: newRest.direccion,
         instagram: newRest.instagram.startsWith('@') ? newRest.instagram : `@${newRest.instagram}`,
         videoUrl: newRest.videoUrl.trim() || undefined,
+        usuarioAcceso: newRest.usuarioAcceso.trim() || defaultUser,
+        claveAcceso: newRest.claveAcceso.trim() || defaultPass,
         activo: true,
         votosCount: 0,
         promedioRating: 0,
@@ -238,7 +402,7 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
         setNewRest({
           nombre: '', nombreHamburguesa: '', slogan: '', descripcion: '', 
           ingredientesRaw: '', precio: '', direccion: '', instagram: '',
-          videoUrl: ''
+          videoUrl: '', usuarioAcceso: '', claveAcceso: ''
         });
         setFotoFile(null);
         setLogoFile(null);
@@ -248,6 +412,153 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
       alert("Error al subir el restaurante o las imágenes. Revisa la consola.");
     } finally {
       setIsUploadingRest(false);
+    }
+  };
+
+  const openEditRestModal = (r: Restaurante) => {
+    if (r.descalificado) {
+      alert("Este restaurante se encuentra descalificado. Debes reincorporarlo mediante auditoría antes de poder modificar sus datos.");
+      return;
+    }
+    setEditingRest(r);
+    setEditRestForm({
+      nombre: r.nombre,
+      nombreHamburguesa: r.nombreHamburguesa,
+      slogan: r.slogan || '',
+      descripcion: r.descripcion || '',
+      ingredientesRaw: (r.ingredientes || []).join(', '),
+      precio: r.precio || '',
+      direccion: r.direccion || '',
+      instagram: r.instagram || '',
+      videoUrl: r.videoUrl || '',
+      usuarioAcceso: r.usuarioAcceso || r.nombre.toLowerCase().replace(/[^a-z0-9]/g, ''),
+      claveAcceso: r.claveAcceso || 'burger2026'
+    });
+    setEditFotoFile(null);
+    setEditLogoFile(null);
+    setEditRestSuccess(false);
+  };
+
+  const handleSaveRestaurantEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingRest) return;
+    if (editingRest.descalificado) {
+      alert("No se pueden modificar los datos de un participante descalificado.");
+      return;
+    }
+    setIsSavingEditRest(true);
+
+    try {
+      const updates: Partial<Restaurante> = {
+        nombre: toTitleCase(editRestForm.nombre),
+        nombreHamburguesa: toTitleCase(editRestForm.nombreHamburguesa),
+        slogan: toSentenceCase(editRestForm.slogan),
+        descripcion: toSentenceCase(editRestForm.descripcion),
+        ingredientes: editRestForm.ingredientesRaw
+          .split(',')
+          .map(s => s.trim())
+          .filter(Boolean)
+          .map(s => s.charAt(0).toUpperCase() + s.slice(1)),
+        precio: formatPrice(editRestForm.precio),
+        direccion: toSentenceCase(editRestForm.direccion),
+        instagram: formatInstagramHandle(editRestForm.instagram),
+        videoUrl: editRestForm.videoUrl.trim() || "",
+        usuarioAcceso: editRestForm.usuarioAcceso.trim() || undefined,
+        claveAcceso: editRestForm.claveAcceso.trim() || undefined
+      };
+
+      if (editFotoFile) {
+        updates.fotoUrl = await convertImageToBase64(editFotoFile);
+      }
+      if (editLogoFile) {
+        updates.logoUrl = await convertImageToBase64(editLogoFile, 400);
+      }
+
+      const ok = await updateRestauranteFirebase(editingRest.id, updates);
+      if (ok) {
+        setEditRestSuccess(true);
+        onRestaurantesUpdated();
+        setTimeout(() => {
+          setEditRestSuccess(false);
+          setEditingRest(null);
+        }, 1500);
+      } else {
+        alert("Error al actualizar la información en Firebase. Revisa los datos ingresados.");
+      }
+    } catch (err: any) {
+      console.error(err);
+      alert(err.message || "Error procesando los cambios.");
+    } finally {
+      setIsSavingEditRest(false);
+    }
+  };
+
+  const openDisqualifyModal = (r: Restaurante) => {
+    setDisqualifyTargetRest(r);
+    setDisqualifyCodeInput('');
+    setDisqualifyReasonInput(r.motivoDescalificacion || '');
+    setDisqualifyError(null);
+    setDisqualifySuccessMsg(null);
+  };
+
+  const handleConfirmDisqualification = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!disqualifyTargetRest) return;
+    setDisqualifyError(null);
+
+    // Verificación estricta de código de seguridad: 0987654321
+    if (disqualifyCodeInput.trim() !== '0987654321') {
+      setDisqualifyError('Código de seguridad incorrecto. Acción denegada por auditoría.');
+      return;
+    }
+
+    setIsSubmittingDisqualify(true);
+    try {
+      const newStatus = !disqualifyTargetRest.descalificado;
+      const ok = await toggleDescalificarRestauranteFirebase(
+        disqualifyTargetRest.id,
+        newStatus,
+        disqualifyReasonInput
+      );
+
+      if (ok) {
+        setDisqualifySuccessMsg(newStatus ? 'Restaurante marcado como DESCALIFICADO con éxito.' : 'Restaurante reincorporado a la competencia.');
+        onRestaurantesUpdated();
+        setTimeout(() => {
+          setDisqualifyTargetRest(null);
+          setDisqualifySuccessMsg(null);
+        }, 1800);
+      } else {
+        setDisqualifyError('Error al actualizar el estado en Firebase.');
+      }
+    } catch (err: any) {
+      setDisqualifyError(err.message || 'Error en la operación.');
+    } finally {
+      setIsSubmittingDisqualify(false);
+    }
+  };
+
+  const handleSaveRestaurantVideo = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingVideoRest) return;
+    setIsSavingVideo(true);
+    try {
+      const ok = await updateRestauranteVideoFirebase(editingVideoRest.id, editVideoUrlInput);
+      if (ok) {
+        setVideoSaveSuccess(true);
+        onRestaurantesUpdated();
+        setTimeout(() => {
+          setVideoSaveSuccess(false);
+          setEditingVideoRest(null);
+        }, 1500);
+      } else {
+        alert("No se pudo actualizar el video en Firebase.");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Error al guardar el enlace de video.");
+    } finally {
+      setIsSavingVideo(false);
     }
   };
 
@@ -491,6 +802,19 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
           </button>
           <button onClick={() => setActiveTab('sponsors')} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all ${activeTab === 'sponsors' ? 'bg-[#A40B03] text-[#FFF9ED] shadow-[0_0_15px_rgba(164,11,3,0.35)] border border-[#A40B03]/60' : 'text-stone-400 hover:bg-stone-900'}`}>
             <Award className="w-4 h-4" /> <span>Patrocinadores</span>
+          </button>
+          <button 
+            onClick={() => {
+              setActiveTab('sponsor_audit');
+              fetchComprasAudit();
+            }} 
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all ${
+              activeTab === 'sponsor_audit' 
+                ? 'bg-[#A40B03] text-[#FFF9ED] shadow-[0_0_15px_rgba(164,11,3,0.35)] border border-[#A40B03]/60' 
+                : 'text-stone-400 hover:bg-stone-900'
+            }`}
+          >
+            <Receipt className="w-4 h-4" /> <span>Auditoría Compras</span>
           </button>
         </div>
 
@@ -762,8 +1086,57 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
                     return (
                       <div 
                         key={r.id} 
-                        className="p-4 rounded-xl bg-black border border-stone-800 hover:border-[#A40B03]/50 transition-all flex flex-col justify-between space-y-3 group"
+                        className={`p-4 rounded-xl bg-black border transition-all flex flex-col justify-between space-y-3 group ${
+                          r.descalificado 
+                            ? 'border-red-600/60 bg-gradient-to-b from-red-950/20 to-black' 
+                            : 'border-stone-800 hover:border-[#A40B03]/50'
+                        }`}
                       >
+                        {/* Status & Quick Actions Bar */}
+                        <div className="flex items-center justify-between gap-2 border-b border-stone-900 pb-2.5">
+                          {r.descalificado ? (
+                            <span className="px-2 py-0.5 rounded-md bg-red-600/30 border border-red-500/80 text-red-300 text-[10px] font-black uppercase tracking-wider flex items-center gap-1">
+                              <ShieldX className="w-3 h-3 text-red-400" /> Descalificado
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded-md bg-emerald-950/40 border border-emerald-500/40 text-emerald-400 text-[10px] font-bold flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> En Competencia
+                            </span>
+                          )}
+
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => openEditRestModal(r)}
+                              disabled={r.descalificado}
+                              className={`px-2 py-1 rounded-lg border transition-colors text-[11px] font-semibold flex items-center gap-1 ${
+                                r.descalificado
+                                  ? 'opacity-40 cursor-not-allowed bg-stone-950 border-stone-800 text-stone-500'
+                                  : 'bg-stone-900 hover:bg-stone-800 text-stone-200 hover:text-white border border-stone-800 hover:border-stone-700 cursor-pointer'
+                              }`}
+                              title={r.descalificado ? 'Bloqueado: El restaurante está descalificado. Reincorpóralo para editar.' : 'Editar información completa'}
+                            >
+                              <Edit3 className="w-3 h-3 text-[#A40B03]" />
+                              <span>Editar</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => openDisqualifyModal(r)}
+                              className={`px-2 py-1 rounded-lg border transition-colors text-[11px] font-semibold flex items-center gap-1 cursor-pointer ${
+                                r.descalificado
+                                  ? 'bg-emerald-950/40 border-emerald-500/50 text-emerald-300 hover:bg-emerald-900/60'
+                                  : 'bg-red-950/30 border-red-700/50 text-red-400 hover:bg-red-900/40'
+                              }`}
+                              title="Control de Descalificación con código de seguridad"
+                            >
+                              {r.descalificado ? <ShieldCheck className="w-3 h-3 text-emerald-400" /> : <ShieldX className="w-3 h-3 text-red-400" />}
+                              <span>{r.descalificado ? 'Reincorporar' : 'Descalificar'}</span>
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Restaurant Info */}
                         <div className="flex items-start gap-3">
                           <img 
                             src={r.fotoUrl} 
@@ -784,14 +1157,54 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
                           </div>
                         </div>
 
+                        {/* Manager Credentials Badge */}
+                        <div className="p-2.5 rounded-xl bg-stone-950 border border-stone-800 text-[11px] flex items-center justify-between gap-2">
+                          <div className="truncate">
+                            <span className="text-stone-500 font-bold block text-[10px] uppercase">Credenciales Encargado:</span>
+                            <span className="font-mono text-stone-300">
+                              User: <strong className="text-[#FFF9ED]">{r.usuarioAcceso || r.nombre.toLowerCase().replace(/[^a-z0-9]/g, '')}</strong>
+                            </span>
+                            <span className="text-stone-600 mx-1">•</span>
+                            <span className="font-mono text-stone-300">
+                              Clave: <strong className="text-amber-400">{r.claveAcceso || 'burger2026'}</strong>
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const u = r.usuarioAcceso || r.nombre.toLowerCase().replace(/[^a-z0-9]/g, '');
+                              const p = r.claveAcceso || 'burger2026';
+                              navigator.clipboard.writeText(`Credenciales The Best Burger 2026\nRestaurante: ${r.nombre}\nUsuario: ${u}\nClave: ${p}`);
+                              alert(`Credenciales de ${r.nombre} copiadas al portapapeles.`);
+                            }}
+                            className="p-1.5 rounded-lg bg-stone-900 hover:bg-stone-800 text-stone-400 hover:text-white border border-stone-800 shrink-0 cursor-pointer"
+                            title="Copiar credenciales para enviar al encargado"
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+
+                        {/* Action Buttons: QR & Video */}
                         <div className="pt-2 border-t border-stone-900 flex items-center justify-between gap-2">
                           <button
                             type="button"
                             onClick={() => setSelectedQrRest(r)}
-                            className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-[#A40B03]/20 hover:bg-[#A40B03] text-[#FFF9ED] font-bold text-xs border border-[#A40B03]/40 transition-all shadow-sm"
+                            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-[#A40B03]/20 hover:bg-[#A40B03] text-[#FFF9ED] font-bold text-xs border border-[#A40B03]/40 transition-all shadow-sm cursor-pointer"
                           >
                             <QrCode className="w-3.5 h-3.5 text-[#FFF9ED]" />
-                            <span>Ver / Imprimir QR de Mesa</span>
+                            <span>QR de Mesa</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingVideoRest(r);
+                              setEditVideoUrlInput(r.videoUrl || '');
+                            }}
+                            className="px-3 py-2 rounded-lg bg-black hover:bg-stone-900 border border-stone-800 hover:border-[#A40B03]/60 text-stone-300 hover:text-[#FFF9ED] font-bold text-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                            title="Editar Enlace de Video / Reel"
+                          >
+                            <Film className="w-3.5 h-3.5 text-[#A40B03]" />
+                            <span>Video</span>
                           </button>
                         </div>
                       </div>
@@ -910,13 +1323,480 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
               </div>
             )}
 
+            {/* MODAL: EDITAR VIDEO / ENLACE DE RESTAURANTE */}
+            {editingVideoRest && (
+              <div className="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                <div className="bg-[#0F0F0F] border border-stone-800 rounded-3xl p-6 sm:p-7 max-w-md w-full shadow-2xl relative space-y-5 animate-in fade-in zoom-in-95 duration-200">
+                  <div className="flex items-start justify-between gap-3 pb-3 border-b border-stone-800">
+                    <div>
+                      <h4 className="font-extrabold text-[#FFF9ED] text-base flex items-center gap-2">
+                        <Film className="w-5 h-5 text-[#A40B03]" />
+                        <span>Video de Preparación</span>
+                      </h4>
+                      <p className="text-xs text-stone-400 mt-0.5">
+                        {editingVideoRest.nombre} • {editingVideoRest.nombreHamburguesa}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setEditingVideoRest(null)}
+                      className="p-1.5 rounded-xl bg-stone-900 text-stone-400 hover:text-[#FFF9ED] border border-stone-800 transition-colors"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  <form onSubmit={handleSaveRestaurantVideo} className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-stone-300 mb-1.5">
+                        Enlace del Video o Reel:
+                      </label>
+                      <input
+                        type="url"
+                        value={editVideoUrlInput}
+                        onChange={(e) => setEditVideoUrlInput(e.target.value)}
+                        placeholder="Ej: https://www.instagram.com/reel/C... o https://.../video.mp4 o YouTube"
+                        className="w-full px-4 py-3 rounded-xl bg-black border border-stone-800 text-[#FFF9ED] text-xs outline-none focus:border-[#A40B03] font-mono"
+                      />
+                      <p className="text-[11px] text-stone-500 mt-2 leading-relaxed">
+                        💡 Soporta <strong>Reels de Instagram</strong> (ej: <code className="text-stone-400">instagram.com/reel/...</code>), videos de <strong>YouTube</strong> y archivos directos <strong>MP4</strong>.
+                      </p>
+                    </div>
+
+                    {videoSaveSuccess && (
+                      <div className="p-3 rounded-xl bg-emerald-950/80 border border-emerald-500/50 text-emerald-300 text-xs flex items-center gap-2">
+                        <Check className="w-4 h-4" />
+                        <span>¡Enlace de video guardado exitosamente!</span>
+                      </div>
+                    )}
+
+                    <div className="flex items-center justify-end gap-2 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => setEditingVideoRest(null)}
+                        className="px-4 py-2.5 rounded-xl bg-black border border-stone-800 text-xs font-bold text-stone-400 hover:text-stone-200"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={isSavingVideo}
+                        className="px-5 py-2.5 rounded-xl bg-[#A40B03] hover:bg-[#BF0E05] text-[#FFF9ED] text-xs font-extrabold shadow-md transition-all flex items-center gap-1.5 disabled:opacity-50"
+                      >
+                        {isSavingVideo ? (
+                          <>
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                            <span>Guardando...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Check className="w-3.5 h-3.5" />
+                            <span>Guardar Enlace</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
+
+            {/* MODAL 1: EDITAR INFORMACIÓN COMPLETA DEL RESTAURANTE */}
+            {editingRest && (
+              <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-3 sm:p-5 overflow-hidden">
+                <div className="bg-[#0F0F0F] border border-stone-800 rounded-3xl max-w-2xl w-full max-h-[92vh] flex flex-col shadow-2xl relative animate-in fade-in zoom-in-95 duration-200">
+                  {/* Modal Header (Fixed) */}
+                  <div className="p-5 sm:p-6 pb-4 border-b border-stone-800 flex items-start justify-between gap-3 shrink-0">
+                    <div>
+                      <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-[#A40B03]/20 border border-[#A40B03]/40 text-[#FFF9ED] text-[11px] font-bold uppercase tracking-wider mb-1.5">
+                        <Edit3 className="w-3 h-3 text-[#A40B03]" />
+                        <span>Edición de Ficha Oficial</span>
+                      </div>
+                      <h4 className="font-extrabold text-[#FFF9ED] text-base sm:text-lg">
+                        Modificar Ficha de {editingRest.nombreHamburguesa}
+                      </h4>
+                      <p className="text-xs text-stone-400 mt-0.5">
+                        {editingRest.nombre} • Modifica ingredientes, precios, descripciones o enlaces.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setEditingRest(null)}
+                      className="p-1.5 rounded-xl bg-stone-900 text-stone-400 hover:text-[#FFF9ED] border border-stone-800 transition-colors cursor-pointer shrink-0"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {/* Modal Body (Single Scrollbar) */}
+                  <form id="edit-rest-form" onSubmit={handleSaveRestaurantEdit} className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-4">
+                    {/* Auto-format Button */}
+                    <div className="flex items-center justify-between pb-1 border-b border-stone-900">
+                      <span className="text-xs text-stone-400 font-medium">
+                        Datos del participante y burger
+                      </span>
+                      <button
+                        type="button"
+                        onClick={autoFormatEditRest}
+                        className="px-3 py-1.5 rounded-xl bg-amber-950/40 hover:bg-amber-900/50 text-amber-300 border border-amber-500/40 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
+                      >
+                        <Wand2 className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Capitalizar y Formatear Automático</span>
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                      <div>
+                        <label className="block text-[11px] font-bold uppercase tracking-wider text-stone-400 mb-1">
+                          Nombre del Restaurante
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={editRestForm.nombre}
+                          onChange={(e) => setEditRestForm({ ...editRestForm, nombre: e.target.value })}
+                          className="w-full px-3.5 py-2.5 rounded-xl bg-black border border-stone-800 text-[#FFF9ED] text-xs outline-none focus:border-[#A40B03]"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-bold uppercase tracking-wider text-stone-400 mb-1">
+                          Nombre de la Hamburguesa / Plato
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={editRestForm.nombreHamburguesa}
+                          onChange={(e) => setEditRestForm({ ...editRestForm, nombreHamburguesa: e.target.value })}
+                          className="w-full px-3.5 py-2.5 rounded-xl bg-black border border-stone-800 text-[#FFF9ED] text-xs outline-none focus:border-[#A40B03]"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-bold uppercase tracking-wider text-stone-400 mb-1">
+                          Slogan
+                        </label>
+                        <input
+                          type="text"
+                          value={editRestForm.slogan}
+                          onChange={(e) => setEditRestForm({ ...editRestForm, slogan: e.target.value })}
+                          className="w-full px-3.5 py-2.5 rounded-xl bg-black border border-stone-800 text-[#FFF9ED] text-xs outline-none focus:border-[#A40B03]"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-bold uppercase tracking-wider text-stone-400 mb-1">
+                          Precio Oficial
+                        </label>
+                        <input
+                          type="text"
+                          value={editRestForm.precio}
+                          onChange={(e) => setEditRestForm({ ...editRestForm, precio: e.target.value })}
+                          placeholder="Ej: $8.00"
+                          className="w-full px-3.5 py-2.5 rounded-xl bg-black border border-stone-800 text-[#FFF9ED] text-xs outline-none focus:border-[#A40B03] font-mono"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-bold uppercase tracking-wider text-stone-400 mb-1">
+                          Instagram
+                        </label>
+                        <input
+                          type="text"
+                          value={editRestForm.instagram}
+                          onChange={(e) => setEditRestForm({ ...editRestForm, instagram: e.target.value })}
+                          placeholder="@usuario"
+                          className="w-full px-3.5 py-2.5 rounded-xl bg-black border border-stone-800 text-[#FFF9ED] text-xs outline-none focus:border-[#A40B03]"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-bold uppercase tracking-wider text-stone-400 mb-1">
+                          Dirección en El Tocuyo
+                        </label>
+                        <input
+                          type="text"
+                          value={editRestForm.direccion}
+                          onChange={(e) => setEditRestForm({ ...editRestForm, direccion: e.target.value })}
+                          className="w-full px-3.5 py-2.5 rounded-xl bg-black border border-stone-800 text-[#FFF9ED] text-xs outline-none focus:border-[#A40B03]"
+                        />
+                      </div>
+
+                      {/* Credenciales de Acceso para Encargado */}
+                      <div>
+                        <label className="block text-[11px] font-bold uppercase tracking-wider text-amber-400 mb-1">
+                          Usuario Encargado (Acceso QR)
+                        </label>
+                        <input
+                          type="text"
+                          value={editRestForm.usuarioAcceso}
+                          onChange={(e) => setEditRestForm({ ...editRestForm, usuarioAcceso: e.target.value })}
+                          placeholder="Ej: burger_el_tocuyo"
+                          className="w-full px-3.5 py-2.5 rounded-xl bg-black border border-stone-800 text-[#FFF9ED] text-xs outline-none focus:border-[#A40B03] font-mono"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-bold uppercase tracking-wider text-amber-400 mb-1">
+                          Clave de Acceso (Acceso QR)
+                        </label>
+                        <input
+                          type="text"
+                          value={editRestForm.claveAcceso}
+                          onChange={(e) => setEditRestForm({ ...editRestForm, claveAcceso: e.target.value })}
+                          placeholder="Ej: burger2026"
+                          className="w-full px-3.5 py-2.5 rounded-xl bg-black border border-stone-800 text-[#FFF9ED] text-xs outline-none focus:border-[#A40B03] font-mono"
+                        />
+                      </div>
+
+                      <div className="sm:col-span-2">
+                        <label className="block text-[11px] font-bold uppercase tracking-wider text-stone-400 mb-1">
+                          URL de Video / Reel (Instagram o MP4)
+                        </label>
+                        <input
+                          type="url"
+                          value={editRestForm.videoUrl}
+                          onChange={(e) => setEditRestForm({ ...editRestForm, videoUrl: e.target.value })}
+                          placeholder="https://www.instagram.com/reel/... o https://.../video.mp4"
+                          className="w-full px-3.5 py-2.5 rounded-xl bg-black border border-stone-800 text-[#FFF9ED] text-xs outline-none focus:border-[#A40B03] font-mono"
+                        />
+                      </div>
+
+                      <div className="sm:col-span-2">
+                        <label className="block text-[11px] font-bold uppercase tracking-wider text-stone-400 mb-1">
+                          Ingredientes (Separados por coma)
+                        </label>
+                        <input
+                          type="text"
+                          value={editRestForm.ingredientesRaw}
+                          onChange={(e) => setEditRestForm({ ...editRestForm, ingredientesRaw: e.target.value })}
+                          placeholder="Pan brioche artesanal, 180g blend de carne, queso cheddar..."
+                          className="w-full px-3.5 py-2.5 rounded-xl bg-black border border-stone-800 text-[#FFF9ED] text-xs outline-none focus:border-[#A40B03]"
+                        />
+                      </div>
+
+                      <div className="sm:col-span-2">
+                        <label className="block text-[11px] font-bold uppercase tracking-wider text-stone-400 mb-1">
+                          Descripción de la Hamburguesa
+                        </label>
+                        <textarea
+                          rows={3}
+                          value={editRestForm.descripcion}
+                          onChange={(e) => setEditRestForm({ ...editRestForm, descripcion: e.target.value })}
+                          className="w-full px-3.5 py-2.5 rounded-xl bg-black border border-stone-800 text-[#FFF9ED] text-xs outline-none focus:border-[#A40B03] resize-none"
+                        />
+                      </div>
+
+                      {/* Optional Image Replacement */}
+                      <div className="p-3 rounded-xl border border-stone-800 bg-black space-y-1">
+                        <label className="block text-[11px] font-bold uppercase text-stone-400">
+                          Reemplazar Foto (Opcional)
+                        </label>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={(e) => setEditFotoFile(e.target.files ? e.target.files[0] : null)}
+                          className="text-[11px] text-stone-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-[10px] file:font-semibold file:bg-stone-900 file:text-stone-300"
+                        />
+                      </div>
+
+                      <div className="p-3 rounded-xl border border-stone-800 bg-black space-y-1">
+                        <label className="block text-[11px] font-bold uppercase text-stone-400">
+                          Reemplazar Logo (Opcional)
+                        </label>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={(e) => setEditLogoFile(e.target.files ? e.target.files[0] : null)}
+                          className="text-[11px] text-stone-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-[10px] file:font-semibold file:bg-stone-900 file:text-stone-300"
+                        />
+                      </div>
+                    </div>
+
+                    {editRestSuccess && (
+                      <div className="p-3.5 rounded-xl bg-emerald-950/80 border border-emerald-500/50 text-emerald-300 text-xs flex items-center gap-2">
+                        <Check className="w-4 h-4 text-emerald-400" />
+                        <span>¡Información del restaurante actualizada exitosamente en Firebase!</span>
+                      </div>
+                    )}
+                  </form>
+
+                  {/* Modal Footer (Fixed at Bottom) */}
+                  <div className="p-4 sm:p-5 border-t border-stone-800 bg-[#0A0A0A] rounded-b-3xl flex items-center justify-end gap-2.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setEditingRest(null)}
+                      className="px-4 py-2.5 rounded-xl bg-black border border-stone-800 text-xs font-bold text-stone-400 hover:text-stone-200 cursor-pointer transition-colors"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      form="edit-rest-form"
+                      disabled={isSavingEditRest}
+                      className="px-5 py-2.5 rounded-xl bg-[#A40B03] hover:bg-[#BF0E05] text-[#FFF9ED] text-xs font-extrabold shadow-md transition-all flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                    >
+                      {isSavingEditRest ? (
+                        <>
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          <span>Guardando en Firebase...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Check className="w-3.5 h-3.5" />
+                          <span>Guardar Modificaciones</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* MODAL 2: SEGURIDAD DE DESCALIFICACIÓN (CÓDIGO: 0987654321) */}
+            {disqualifyTargetRest && (
+              <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
+                <div className="bg-[#0F0F0F] border border-red-600/50 rounded-3xl p-6 sm:p-7 max-w-md w-full shadow-2xl relative space-y-5 animate-in fade-in zoom-in-95 duration-200">
+                  {/* Header */}
+                  <div className="flex items-start justify-between gap-3 pb-3 border-b border-stone-800">
+                    <div className="flex items-center gap-2.5">
+                      <div className="p-2.5 rounded-2xl bg-red-600/20 text-red-500 border border-red-500/40">
+                        <ShieldAlert className="w-6 h-6 text-red-500" />
+                      </div>
+                      <div>
+                        <h4 className="font-extrabold text-[#FFF9ED] text-base">
+                          {disqualifyTargetRest.descalificado ? 'Reincorporar Restaurante' : 'Descalificar Participante'}
+                        </h4>
+                        <p className="text-xs text-red-400 font-semibold">
+                          Acción de Auditoría Oficial • Seguridad Requerida
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setDisqualifyTargetRest(null)}
+                      className="p-1.5 rounded-xl bg-stone-900 text-stone-400 hover:text-[#FFF9ED] border border-stone-800 transition-colors cursor-pointer"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  <form onSubmit={handleConfirmDisqualification} className="space-y-4">
+                    <div className="p-3.5 rounded-2xl bg-black border border-stone-800 text-xs space-y-1">
+                      <p className="font-bold text-[#FFF9ED]">{disqualifyTargetRest.nombre}</p>
+                      <p className="text-stone-400">{disqualifyTargetRest.nombreHamburguesa}</p>
+                      <p className="text-[11px] text-stone-500 pt-1">
+                        {disqualifyTargetRest.descalificado 
+                          ? 'Al reincorporar, el restaurante volverá a estar activo y recibirá votos nuevamente.'
+                          : 'Al descalificar, aparecerá con una cinta roja pública de DESCALIFICADO y se bloquearán todos sus votos y códigos de mesa.'}
+                      </p>
+                    </div>
+
+                    {/* Secret Security Code Input */}
+                    <div className="space-y-1.5">
+                      <label className="block text-xs font-bold uppercase tracking-wider text-stone-300 flex items-center justify-between">
+                        <span>Código de Auditoría Superadmin:</span>
+                        <span className="text-[10px] text-red-400 font-mono">Requerido</span>
+                      </label>
+                      <div className="relative">
+                        <Lock className="w-4 h-4 text-stone-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="password"
+                          required
+                          value={disqualifyCodeInput}
+                          onChange={(e) => setDisqualifyCodeInput(e.target.value)}
+                          placeholder="Ingresa el código secreto de 10 dígitos"
+                          className="w-full pl-10 pr-3.5 py-2.5 rounded-xl bg-black border border-stone-800 focus:border-red-500 focus:ring-1 focus:ring-red-500 outline-none text-[#FFF9ED] text-xs font-mono tracking-widest transition-all"
+                        />
+                      </div>
+                      <p className="text-[10px] text-stone-500">
+                        Código de seguridad preestablecido para autorizar descalificaciones oficiales.
+                      </p>
+                    </div>
+
+                    {/* Reason Input */}
+                    {!disqualifyTargetRest.descalificado && (
+                      <div className="space-y-1.5">
+                        <label className="block text-xs font-bold uppercase tracking-wider text-stone-300">
+                          Motivo de la Descalificación (Público):
+                        </label>
+                        <textarea
+                          rows={2}
+                          value={disqualifyReasonInput}
+                          onChange={(e) => setDisqualifyReasonInput(e.target.value)}
+                          placeholder="Ej: Incumplimiento del gramaje de carne reglamentario, irregularidad en códigos..."
+                          className="w-full px-3.5 py-2 rounded-xl bg-black border border-stone-800 text-[#FFF9ED] text-xs outline-none focus:border-red-500 resize-none"
+                        />
+                      </div>
+                    )}
+
+                    {disqualifyError && (
+                      <div className="p-3 rounded-xl bg-red-950/80 border border-red-500/50 text-red-300 text-xs flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                        <span>{disqualifyError}</span>
+                      </div>
+                    )}
+
+                    {disqualifySuccessMsg && (
+                      <div className="p-3 rounded-xl bg-emerald-950/80 border border-emerald-500/50 text-emerald-300 text-xs flex items-center gap-2">
+                        <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+                        <span>{disqualifySuccessMsg}</span>
+                      </div>
+                    )}
+
+                    <div className="flex items-center justify-end gap-2.5 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => setDisqualifyTargetRest(null)}
+                        className="px-4 py-2.5 rounded-xl bg-black border border-stone-800 text-xs font-bold text-stone-400 hover:text-stone-200 cursor-pointer"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={isSubmittingDisqualify}
+                        className={`px-5 py-2.5 rounded-xl text-xs font-extrabold shadow-md transition-all flex items-center gap-1.5 disabled:opacity-50 cursor-pointer ${
+                          disqualifyTargetRest.descalificado
+                            ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                            : 'bg-red-600 hover:bg-red-500 text-white border border-red-500/50'
+                        }`}
+                      >
+                        {isSubmittingDisqualify ? (
+                          <>
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                            <span>Validando...</span>
+                          </>
+                        ) : (
+                          <>
+                            {disqualifyTargetRest.descalificado ? <ShieldCheck className="w-3.5 h-3.5" /> : <ShieldX className="w-3.5 h-3.5" />}
+                            <span>{disqualifyTargetRest.descalificado ? 'Confirmar Reincorporación' : 'Aplicar Descalificación'}</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
+
             {/* SECTION 2: FORM TO REGISTER NEW RESTAURANT */}
             <div className="p-6 rounded-2xl bg-[#0F0F0F] border border-stone-800 space-y-4">
-              <div className="flex justify-between border-b border-stone-800 pb-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-stone-800 pb-3">
                 <h3 className="font-bold text-[#FFF9ED] flex items-center gap-2">
                   <Store className="w-5 h-5 text-[#A40B03]" /> <span>Inscribir Nuevo Restaurante / Competidor</span>
                 </h3>
-                {registerSuccess && <span className="text-xs text-emerald-400 font-bold">¡Restaurante guardado exitosamente!</span>}
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={autoFormatNewRest}
+                    className="px-3 py-1.5 rounded-xl bg-amber-950/40 hover:bg-amber-900/50 text-amber-300 border border-amber-500/40 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
+                    title="Corrige mayúsculas/minúsculas, arroba de Instagram y formato de precios automáticamente"
+                  >
+                    <Wand2 className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Capitalizar y Formatear Automático</span>
+                  </button>
+                  {registerSuccess && <span className="text-xs text-emerald-400 font-bold">¡Restaurante guardado exitosamente!</span>}
+                </div>
               </div>
 
               <form onSubmit={handleCreateRestaurante} className="space-y-4">
@@ -964,6 +1844,39 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
                   <div className="sm:col-span-2">
                     <label className="block text-xs font-semibold text-stone-400 mb-1">Descripción</label>
                     <textarea rows={2} value={newRest.descripcion} onChange={(e) => setNewRest({ ...newRest, descripcion: e.target.value })} className="w-full px-4 py-2.5 rounded-xl bg-black border border-stone-800 text-[#FFF9ED] text-xs outline-none resize-none focus:border-[#A40B03]" />
+                  </div>
+
+                  {/* Credenciales de Acceso para Compras en Patrocinadores */}
+                  <div className="sm:col-span-2 p-3.5 rounded-xl bg-stone-950/80 border border-stone-800 space-y-2">
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-amber-400">
+                      <KeyRound className="w-3.5 h-3.5" />
+                      <span>Credenciales de Acceso para el Encargado (Visitas a Patrocinadores)</span>
+                    </div>
+                    <p className="text-[11px] text-stone-400 leading-relaxed">
+                      Con este usuario y contraseña, el encargado del restaurante podrá iniciar sesión al escanear los códigos QR en las tiendas de los patrocinadores para subir sus facturas de compras. Si se dejan vacíos, se generarán automáticamente (ej: <code className="text-stone-300">nombre / burger2026</code>).
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                      <div>
+                        <label className="block text-[11px] font-semibold text-stone-400 mb-1">Usuario de Acceso</label>
+                        <input
+                          type="text"
+                          value={newRest.usuarioAcceso}
+                          onChange={(e) => setNewRest({ ...newRest, usuarioAcceso: e.target.value })}
+                          placeholder="Ej: asadortocuyano"
+                          className="w-full px-3 py-2 rounded-xl bg-black border border-stone-800 text-[#FFF9ED] text-xs outline-none focus:border-[#A40B03]"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-semibold text-stone-400 mb-1">Contraseña de Acceso</label>
+                        <input
+                          type="text"
+                          value={newRest.claveAcceso}
+                          onChange={(e) => setNewRest({ ...newRest, claveAcceso: e.target.value })}
+                          placeholder="Ej: burger2026"
+                          className="w-full px-3 py-2 rounded-xl bg-black border border-stone-800 text-[#FFF9ED] text-xs outline-none focus:border-[#A40B03]"
+                        />
+                      </div>
+                    </div>
                   </div>
 
                   {/* File Uploads for Restaurant */}
@@ -1074,7 +1987,19 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
                             </div>
                           </div>
 
-                          <div className="pt-2 border-t border-stone-900 flex items-center justify-between">
+                          <div className="pt-2 border-t border-stone-900 flex flex-col gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedSponsorQr(pat);
+                                setCopiedSponsorUrl(false);
+                              }}
+                              className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 font-bold text-xs border border-amber-500/30 transition-all cursor-pointer"
+                            >
+                              <QrCode className="w-3.5 h-3.5 text-amber-400" />
+                              <span>Ver / Imprimir QR de Tienda</span>
+                            </button>
+
                             {isApex ? (
                               <div className="w-full text-center py-1.5 px-3 rounded-lg bg-[#A40B03] text-amber-300 font-extrabold text-[11px] flex items-center justify-center gap-1.5 border border-amber-400/40 shadow-sm">
                                 <Crown className="w-3.5 h-3.5 text-amber-300" />
@@ -1084,7 +2009,7 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
                               <button
                                 type="button"
                                 onClick={() => handleSetPrincipalSponsor(pat.id)}
-                                className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-stone-900 hover:bg-[#A40B03] text-stone-300 hover:text-[#FFF9ED] font-bold text-xs border border-stone-800 hover:border-[#A40B03] transition-all"
+                                className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-stone-900 hover:bg-[#A40B03] text-stone-300 hover:text-[#FFF9ED] font-bold text-xs border border-stone-800 hover:border-[#A40B03] transition-all cursor-pointer"
                               >
                                 <Crown className="w-3.5 h-3.5 text-amber-400" />
                                 <span>Ascender a Cúspide de la Pirámide</span>
@@ -1177,6 +2102,508 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
                   {isUploadingSponsor ? 'Subiendo logo y guardando...' : 'Inscribir Patrocinador en la Pirámide'}
                 </button>
               </form>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 6: SPONSOR PURCHASES AUDIT (COMPLIANCE COMMITTEE) */}
+        {activeTab === 'sponsor_audit' && (
+          <div className="space-y-6 animate-in fade-in duration-200">
+            {/* Header Card */}
+            <div className="p-6 rounded-2xl bg-[#0F0F0F] border border-stone-800 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-stone-800 pb-4">
+                <div>
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-bold uppercase tracking-wider mb-2">
+                    <Receipt className="w-3.5 h-3.5" />
+                    <span>Control de Reglas y Suministros Oficiales</span>
+                  </div>
+                  <h3 className="text-lg font-black text-[#FFF9ED] flex items-center gap-2">
+                    Auditoría de Compras en Tiendas de Patrocinadores
+                  </h3>
+                  <p className="text-xs text-stone-400 mt-1 max-w-2xl leading-relaxed">
+                    Verificación del cumplimiento de la regla oficial: cada restaurante participante debe comprar suministros en las tiendas de los patrocinadores del Food Fest y respaldarlo con factura y descripción.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={fetchComprasAudit}
+                    disabled={isLoadingComprasAudit}
+                    className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-black hover:bg-stone-900 border border-stone-800 text-xs font-bold text-stone-300 transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 text-amber-400 ${isLoadingComprasAudit ? 'animate-spin' : ''}`} />
+                    <span>{isLoadingComprasAudit ? 'Actualizando...' : 'Recargar Auditoría'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* KPI Cards */}
+              {(() => {
+                const uniqueRestaurantsWithPurchases = new Set(comprasAuditList.map(c => c.restauranteId)).size;
+                const uniqueSponsorsVisited = new Set(comprasAuditList.map(c => c.patrocinadorId)).size;
+                const compliancePercentage = restaurantes.length > 0 
+                  ? Math.round((uniqueRestaurantsWithPurchases / restaurantes.length) * 100) 
+                  : 0;
+
+                return (
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 pt-1">
+                    <div className="p-4 rounded-xl bg-black border border-stone-800 space-y-1">
+                      <div className="flex items-center justify-between text-stone-400 text-xs">
+                        <span>Total Facturas</span>
+                        <Receipt className="w-4 h-4 text-amber-400" />
+                      </div>
+                      <div className="text-2xl font-black text-[#FFF9ED] font-mono">
+                        {comprasAuditList.length}
+                      </div>
+                      <div className="text-[10px] text-stone-500">
+                        Comprobantes auditables
+                      </div>
+                    </div>
+
+                    <div className="p-4 rounded-xl bg-black border border-stone-800 space-y-1">
+                      <div className="flex items-center justify-between text-stone-400 text-xs">
+                        <span>Restaurantes al Día</span>
+                        <Store className="w-4 h-4 text-emerald-400" />
+                      </div>
+                      <div className="text-2xl font-black text-emerald-400 font-mono">
+                        {uniqueRestaurantsWithPurchases} <span className="text-xs text-stone-500">/ {restaurantes.length}</span>
+                      </div>
+                      <div className="text-[10px] text-stone-500">
+                        Con al menos 1 compra registrada
+                      </div>
+                    </div>
+
+                    <div className="p-4 rounded-xl bg-black border border-stone-800 space-y-1">
+                      <div className="flex items-center justify-between text-stone-400 text-xs">
+                        <span>Tiendas Visitadas</span>
+                        <ShoppingBag className="w-4 h-4 text-sky-400" />
+                      </div>
+                      <div className="text-2xl font-black text-sky-400 font-mono">
+                        {uniqueSponsorsVisited} <span className="text-xs text-stone-500">/ {patrocinadores.length}</span>
+                      </div>
+                      <div className="text-[10px] text-stone-500">
+                        Puntos de venta de patrocinadores
+                      </div>
+                    </div>
+
+                    <div className="p-4 rounded-xl bg-black border border-stone-800 space-y-1">
+                      <div className="flex items-center justify-between text-stone-400 text-xs">
+                        <span>Cumplimiento Global</span>
+                        <Award className="w-4 h-4 text-[#A40B03]" />
+                      </div>
+                      <div className="text-2xl font-black text-[#FFF9ED] font-mono">
+                        {compliancePercentage}%
+                      </div>
+                      <div className="text-[10px] text-stone-500">
+                        Tasa de adhesión a la regla
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Compliance Matrix by Restaurant */}
+            <div className="p-6 rounded-2xl bg-[#0F0F0F] border border-stone-800 space-y-4">
+              <div className="flex items-center justify-between border-b border-stone-800 pb-3">
+                <div>
+                  <h4 className="font-bold text-[#FFF9ED] text-sm flex items-center gap-2">
+                    <UserCheck className="w-4 h-4 text-amber-400" />
+                    <span>Control de Cumplimiento por Participante</span>
+                  </h4>
+                  <p className="text-xs text-stone-400 mt-0.5">
+                    Resumen de visitas y facturas presentadas por cada restaurante participante.
+                  </p>
+                </div>
+                <div className="text-xs text-stone-400 font-medium">
+                  {restaurantes.length} Competidores
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {restaurantes.map((rest) => {
+                  const restCompras = comprasAuditList.filter(c => c.restauranteId === rest.id);
+                  const sponsorIds = new Set(restCompras.map(c => c.patrocinadorId));
+                  const isCompliant = restCompras.length > 0;
+
+                  return (
+                    <div
+                      key={rest.id}
+                      className={`p-4 rounded-xl border flex flex-col justify-between space-y-3 transition-all ${
+                        isCompliant 
+                          ? 'bg-black border-stone-800 hover:border-emerald-500/40' 
+                          : 'bg-black border-amber-900/40 hover:border-amber-700/60'
+                      }`}
+                    >
+                      <div className="flex items-start gap-3">
+                        <img
+                          src={rest.logoUrl}
+                          alt={rest.nombre}
+                          className="w-10 h-10 rounded-xl object-contain bg-stone-900 border border-stone-800 p-0.5 shrink-0"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <h5 className="font-bold text-[#FFF9ED] text-xs truncate">{rest.nombreHamburguesa}</h5>
+                          <p className="text-[11px] text-stone-400 truncate">{rest.nombre}</p>
+                          <div className="flex items-center gap-1.5 mt-1">
+                            <span className="font-mono text-[10px] text-stone-400 bg-stone-900 px-2 py-0.5 rounded border border-stone-800">
+                              👤 {rest.usuarioAcceso || rest.nombre.toLowerCase().replace(/[^a-z0-9]/g, '')}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="pt-2 border-t border-stone-900 flex items-center justify-between text-xs">
+                        <div className="space-y-0.5">
+                          <div className="text-[11px] font-bold text-stone-300">
+                            {restCompras.length} {restCompras.length === 1 ? 'Factura' : 'Facturas'}
+                          </div>
+                          <div className="text-[10px] text-stone-500">
+                            {sponsorIds.size} {sponsorIds.size === 1 ? 'tienda' : 'tiendas'}
+                          </div>
+                        </div>
+
+                        <div>
+                          {isCompliant ? (
+                            <span className="px-2.5 py-1 rounded-full bg-emerald-950/80 border border-emerald-500/50 text-emerald-300 text-[10px] font-bold flex items-center gap-1">
+                              <CheckCircle className="w-3 h-3 text-emerald-400" /> Al día
+                            </span>
+                          ) : (
+                            <span className="px-2.5 py-1 rounded-full bg-amber-950/80 border border-amber-500/50 text-amber-300 text-[10px] font-bold flex items-center gap-1">
+                              <AlertCircle className="w-3 h-3 text-amber-400" /> Sin compras
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {restCompras.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAuditFilterRest(rest.id);
+                            setAuditFilterSponsor('todos');
+                          }}
+                          className="w-full text-center py-1 rounded-lg bg-stone-900 hover:bg-stone-800 text-[11px] font-semibold text-stone-300 transition-colors cursor-pointer"
+                        >
+                          Ver sus facturas ({restCompras.length})
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Filter and Detailed Invoices Table */}
+            <div className="p-6 rounded-2xl bg-[#0F0F0F] border border-stone-800 space-y-5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-stone-800 pb-4">
+                <div>
+                  <h4 className="font-bold text-[#FFF9ED] text-base flex items-center gap-2">
+                    <FileSpreadsheet className="w-4 h-4 text-amber-400" />
+                    <span>Registro Detallado de Facturas de Compras</span>
+                  </h4>
+                  <p className="text-xs text-stone-400 mt-0.5">
+                    Historial cronológico de todos los comprobantes y descripciones cargados por los restaurantes participantes.
+                  </p>
+                </div>
+
+                {/* Filters */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <select
+                    value={auditFilterRest}
+                    onChange={(e) => setAuditFilterRest(e.target.value)}
+                    className="px-3 py-2 rounded-xl bg-black border border-stone-800 text-[#FFF9ED] text-xs outline-none focus:border-[#A40B03]"
+                  >
+                    <option value="todos">Todos los Restaurantes</option>
+                    {restaurantes.map(r => (
+                      <option key={r.id} value={r.id}>{r.nombreHamburguesa} ({r.nombre})</option>
+                    ))}
+                  </select>
+
+                  <select
+                    value={auditFilterSponsor}
+                    onChange={(e) => setAuditFilterSponsor(e.target.value)}
+                    className="px-3 py-2 rounded-xl bg-black border border-stone-800 text-[#FFF9ED] text-xs outline-none focus:border-[#A40B03]"
+                  >
+                    <option value="todos">Todos los Patrocinadores</option>
+                    {patrocinadores.map(p => (
+                      <option key={p.id} value={p.id}>{p.nombre}</option>
+                    ))}
+                  </select>
+
+                  {(auditFilterRest !== 'todos' || auditFilterSponsor !== 'todos') && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAuditFilterRest('todos');
+                        setAuditFilterSponsor('todos');
+                      }}
+                      className="px-3 py-2 rounded-xl bg-stone-900 hover:bg-stone-800 text-stone-300 text-xs font-semibold cursor-pointer"
+                    >
+                      Limpiar Filtros
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Invoices List */}
+              {(() => {
+                const filtered = comprasAuditList.filter(item => {
+                  if (auditFilterRest !== 'todos' && item.restauranteId !== auditFilterRest) return false;
+                  if (auditFilterSponsor !== 'todos' && item.patrocinadorId !== auditFilterSponsor) return false;
+                  return true;
+                });
+
+                if (isLoadingComprasAudit) {
+                  return (
+                    <div className="text-center py-12 text-stone-400 text-xs flex flex-col items-center gap-2">
+                      <RefreshCw className="w-5 h-5 animate-spin text-amber-400" />
+                      <span>Cargando registro de compras...</span>
+                    </div>
+                  );
+                }
+
+                if (filtered.length === 0) {
+                  return (
+                    <div className="text-center py-12 text-stone-500 text-xs bg-black/40 rounded-xl border border-dashed border-stone-800">
+                      No se encontraron compras ni facturas registradas con los filtros seleccionados.
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {filtered.map((item) => (
+                      <div
+                        key={item.id}
+                        className="p-4 rounded-xl bg-black border border-stone-800 hover:border-stone-700 transition-all flex flex-col justify-between space-y-3"
+                      >
+                        <div className="space-y-2">
+                          <div className="flex items-start justify-between gap-2 border-b border-stone-900 pb-2">
+                            <div>
+                              <div className="text-[10px] uppercase font-mono text-amber-400 font-bold">
+                                Tienda Patrocinadora
+                              </div>
+                              <div className="font-extrabold text-[#FFF9ED] text-sm">
+                                {item.patrocinadorNombre}
+                              </div>
+                            </div>
+                            <span className="text-[10px] text-stone-400 font-mono bg-stone-950 px-2 py-0.5 rounded border border-stone-800">
+                              {item.fecha ? new Date(item.fecha).toLocaleDateString() : ''}
+                            </span>
+                          </div>
+
+                          <div className="space-y-1">
+                            <div className="text-[10px] uppercase font-mono text-stone-500 font-semibold">
+                              Restaurante Comprador
+                            </div>
+                            <div className="text-xs font-bold text-stone-200">
+                              {item.restauranteNombreHamburguesa || item.restauranteNombre}
+                            </div>
+                            <div className="text-[11px] text-stone-400">
+                              {item.restauranteNombre}
+                            </div>
+                          </div>
+
+                          <div className="p-2.5 rounded-lg bg-stone-950 border border-stone-900 space-y-1">
+                            <div className="text-[10px] font-mono text-stone-500 uppercase flex items-center gap-1">
+                              <FileText className="w-3 h-3 text-stone-400" />
+                              <span>Detalle de Productos / Insumos Adquiridos:</span>
+                            </div>
+                            <p className="text-xs text-stone-300 leading-relaxed font-sans">
+                              {item.descripcion}
+                            </p>
+                          </div>
+
+                          {(item.monto || item.numeroFactura) && (
+                            <div className="flex items-center gap-2 text-[11px] text-stone-400 font-mono">
+                              {item.monto && (
+                                <span className="bg-stone-900 px-2 py-0.5 rounded border border-stone-800 text-emerald-400 font-bold">
+                                  {item.monto}
+                                </span>
+                              )}
+                              {item.numeroFactura && (
+                                <span className="bg-stone-900 px-2 py-0.5 rounded border border-stone-800 text-stone-300">
+                                  Factura: {item.numeroFactura}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Invoice Photo Preview or Indicator */}
+                        <div className="pt-2 border-t border-stone-900">
+                          {item.facturaFotoUrl ? (
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2">
+                                <img
+                                  src={item.facturaFotoUrl}
+                                  alt="Factura"
+                                  className="w-9 h-9 rounded-lg object-cover border border-stone-800 cursor-pointer hover:opacity-80"
+                                  onClick={() => setSelectedAuditImage(item.facturaFotoUrl || null)}
+                                />
+                                <span className="text-[11px] text-stone-400">Foto de factura adjunta</span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setSelectedAuditImage(item.facturaFotoUrl || null)}
+                                className="px-2.5 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 font-bold text-xs border border-amber-500/30 flex items-center gap-1 cursor-pointer transition-all"
+                              >
+                                <Eye className="w-3.5 h-3.5" />
+                                <span>Ver</span>
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="text-[11px] text-stone-500 italic flex items-center gap-1">
+                              <span>(Registro con descripción sin foto adjunta)</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        )}
+
+        {/* MODAL: QR DE TIENDA DEL PATROCINADOR */}
+        {selectedSponsorQr && (
+          <div className="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-[#0F0F0F] border border-stone-800 rounded-3xl p-6 sm:p-7 max-w-md w-full shadow-2xl relative space-y-5 animate-in fade-in zoom-in-95 duration-200">
+              <div className="flex items-start justify-between gap-3 pb-3 border-b border-stone-800">
+                <div>
+                  <h4 className="font-extrabold text-[#FFF9ED] text-base flex items-center gap-2">
+                    <QrCode className="w-5 h-5 text-amber-400" />
+                    <span>QR Oficial de Tienda Patrocinadora</span>
+                  </h4>
+                  <p className="text-xs text-stone-400">
+                    {selectedSponsorQr.nombre} • {selectedSponsorQr.tipo}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedSponsorQr(null)}
+                  className="p-1.5 rounded-lg bg-stone-900 hover:bg-stone-800 text-stone-400 hover:text-white transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {(() => {
+                const sponsorCheckinUrl = typeof window !== 'undefined'
+                  ? `${window.location.origin}${window.location.pathname}?patrocinador=${selectedSponsorQr.id}`
+                  : `https://tocuyo-burgerfest.com/?patrocinador=${selectedSponsorQr.id}`;
+
+                return (
+                  <div className="space-y-4">
+                    <div className="p-6 rounded-2xl bg-[#FFF9ED] text-stone-950 flex flex-col items-center text-center space-y-3 shadow-xl border-2 border-amber-300">
+                      <div className="text-[11px] font-black uppercase tracking-widest text-[#A40B03]">
+                        FOOD FEST EL TOCUYO 2026 • TIENDA OFICIAL
+                      </div>
+
+                      <div className="p-3 bg-white rounded-2xl border border-stone-300 shadow-inner">
+                        <QRCodeSVG
+                          value={sponsorCheckinUrl}
+                          size={180}
+                          level="H"
+                          includeMargin={true}
+                        />
+                      </div>
+
+                      <div className="space-y-0.5">
+                        <div className="font-black text-stone-900 text-base">
+                          {selectedSponsorQr.nombre}
+                        </div>
+                        <div className="text-xs text-amber-900 font-bold">
+                          Punto Oficial de Facturación y Compras
+                        </div>
+                      </div>
+
+                      <div className="text-[11px] font-bold text-amber-950 bg-amber-100 border border-amber-300 px-3.5 py-1 rounded-full">
+                        Escanea para registrar factura de compra
+                      </div>
+                    </div>
+
+                    <div className="space-y-2.5 text-xs">
+                      <div className="p-2.5 rounded-xl bg-black border border-stone-800 font-mono text-[11px] text-stone-400 break-all select-all">
+                        {sponsorCheckinUrl}
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard.writeText(sponsorCheckinUrl);
+                            setCopiedSponsorUrl(true);
+                            setTimeout(() => setCopiedSponsorUrl(false), 2500);
+                          }}
+                          className="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-black border border-stone-800 hover:border-amber-400/60 text-stone-200 font-bold transition-all text-xs cursor-pointer"
+                        >
+                          {copiedSponsorUrl ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4 text-amber-400" />}
+                          <span>{copiedSponsorUrl ? 'Copiado' : 'Copiar Enlace'}</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => window.print()}
+                          className="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 font-black transition-all text-xs border border-amber-300 shadow-md cursor-pointer"
+                        >
+                          <Printer className="w-4 h-4 text-stone-950" />
+                          <span>Imprimir QR Tienda</span>
+                        </button>
+                      </div>
+
+                      <a
+                        href={sponsorCheckinUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-black/60 hover:bg-stone-900 text-stone-400 hover:text-stone-200 text-xs transition-colors"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                        <span>Abrir Módulo de Registro en Pestaña Nueva</span>
+                      </a>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        )}
+
+        {/* MODAL: VISOR DE FACTURA COMPLETA */}
+        {selectedAuditImage && (
+          <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-3 sm:p-6 overflow-hidden">
+            <div className="bg-[#0F0F0F] border border-stone-800 rounded-3xl max-w-2xl w-full max-h-[90vh] flex flex-col shadow-2xl relative animate-in fade-in zoom-in-95 duration-200">
+              <div className="p-4 sm:p-5 border-b border-stone-800 flex items-center justify-between shrink-0">
+                <div className="flex items-center gap-2 text-sm font-bold text-[#FFF9ED]">
+                  <Receipt className="w-4 h-4 text-amber-400" />
+                  <span>Comprobante de Factura Oficial</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedAuditImage(null)}
+                  className="p-1.5 rounded-lg bg-stone-900 hover:bg-stone-800 text-stone-400 hover:text-white transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="p-4 sm:p-6 overflow-y-auto flex items-center justify-center bg-black/60 min-h-[300px]">
+                <img
+                  src={selectedAuditImage}
+                  alt="Factura completa"
+                  className="max-h-[70vh] w-auto object-contain rounded-xl shadow-lg border border-stone-800"
+                />
+              </div>
+              <div className="p-3 border-t border-stone-800 flex justify-end shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setSelectedAuditImage(null)}
+                  className="px-4 py-2 rounded-xl bg-stone-900 hover:bg-stone-800 text-stone-300 text-xs font-bold transition-colors cursor-pointer"
+                >
+                  Cerrar Visor
+                </button>
+              </div>
             </div>
           </div>
         )}

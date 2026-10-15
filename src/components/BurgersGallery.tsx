@@ -1,7 +1,7 @@
 import React from 'react';
 import { motion } from 'motion/react';
 import { Restaurante } from '../types';
-import { Star, MapPin, QrCode, ArrowUpRight, Flame, Instagram, Sparkles } from 'lucide-react';
+import { Star, MapPin, QrCode, ArrowUpRight, Flame, Instagram, Sparkles, ShieldAlert } from 'lucide-react';
 
 interface BurgersGalleryProps {
   restaurantes: Restaurante[];
@@ -64,8 +64,21 @@ export const BurgersGallery: React.FC<BurgersGalleryProps> = ({
                   {rest.precio}
                 </div>
 
+                {/* Disqualified Official Banner Ribbon */}
+                {rest.descalificado && (
+                  <div className="absolute inset-0 bg-black/80 backdrop-blur-[3px] z-20 flex flex-col items-center justify-center p-4 text-center">
+                    <div className="px-4 py-2 rounded-xl bg-red-600 text-white font-black text-xs sm:text-sm uppercase tracking-widest border-2 border-white shadow-2xl flex items-center gap-2 animate-pulse">
+                      <ShieldAlert className="w-5 h-5 text-white" />
+                      <span>DESCALIFICADO</span>
+                    </div>
+                    <p className="text-[11px] text-red-200 mt-2 font-semibold max-w-xs leading-tight">
+                      {rest.motivoDescalificacion || 'Participante descalificado por auditoría oficial del festival.'}
+                    </p>
+                  </div>
+                )}
+
                 {/* Restaurant Signature Banner on Bottom of Photo */}
-                <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between text-xs">
+                <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between text-xs z-10">
                   <div className="flex items-center gap-2 bg-black/90 backdrop-blur-md px-3 py-1.5 rounded-xl border border-stone-800">
                     <img
                       src={rest.logoUrl}
@@ -76,9 +89,20 @@ export const BurgersGallery: React.FC<BurgersGalleryProps> = ({
                     <span className="font-bold text-[#FFF9ED]">{rest.nombre}</span>
                   </div>
 
-                  <div className="flex items-center gap-1.5 bg-black/90 backdrop-blur-md text-[#FFF9ED] px-3 py-1.5 rounded-xl text-xs font-bold border border-[#A40B03]/40">
-                    <Sparkles className="w-3.5 h-3.5 text-[#A40B03]" />
-                    <span>En Competencia</span>
+                  <div className={`flex items-center gap-1.5 bg-black/90 backdrop-blur-md px-3 py-1.5 rounded-xl text-xs font-bold border ${
+                    rest.descalificado ? 'text-red-400 border-red-500/50' : 'text-[#FFF9ED] border-[#A40B03]/40'
+                  }`}>
+                    {rest.descalificado ? (
+                      <>
+                        <ShieldAlert className="w-3.5 h-3.5 text-red-400" />
+                        <span>Descalificado</span>
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-3.5 h-3.5 text-[#A40B03]" />
+                        <span>En Competencia</span>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>
@@ -121,15 +145,25 @@ export const BurgersGallery: React.FC<BurgersGalleryProps> = ({
                   </div>
                 </div>
 
-                {/* Card Action Button: Single Full-Width Votar por Esta */}
+                {/* Card Action Button: Single Full-Width Votar por Esta / Ficha */}
                 <div className="pt-2">
-                  <button
-                    onClick={() => onSelectRestaurant(rest.id)}
-                    className="w-full inline-flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs sm:text-sm font-extrabold text-[#FFF9ED] bg-gradient-to-r from-[#A40B03] via-[#BF0E05] to-[#7A0802] border border-[#A40B03]/50 shadow-md shadow-[#A40B03]/25 hover:shadow-lg hover:shadow-[#A40B03]/40 hover:scale-[1.01] active:scale-[0.98] transition-all"
-                  >
-                    <span>Votar por Esta</span>
-                    <ArrowUpRight className="w-4 h-4 text-[#FFF9ED]" />
-                  </button>
+                  {rest.descalificado ? (
+                    <button
+                      onClick={() => onSelectRestaurant(rest.id)}
+                      className="w-full inline-flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs sm:text-sm font-bold text-red-300 bg-red-950/40 border border-red-800/80 hover:bg-red-950/70 transition-all cursor-pointer"
+                    >
+                      <ShieldAlert className="w-4 h-4 text-red-400" />
+                      <span>Ver Ficha (Descalificado)</span>
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => onSelectRestaurant(rest.id)}
+                      className="w-full inline-flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs sm:text-sm font-extrabold text-[#FFF9ED] bg-gradient-to-r from-[#A40B03] via-[#BF0E05] to-[#7A0802] border border-[#A40B03]/50 shadow-md shadow-[#A40B03]/25 hover:shadow-lg hover:shadow-[#A40B03]/40 hover:scale-[1.01] active:scale-[0.98] transition-all cursor-pointer"
+                    >
+                      <span>Votar por Esta</span>
+                      <ArrowUpRight className="w-4 h-4 text-[#FFF9ED]" />
+                    </button>
+                  )}
                 </div>
 
               </div>

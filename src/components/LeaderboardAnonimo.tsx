@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import { Restaurante } from '../types';
-import { Trophy, Flame, ShieldCheck, Lock, Star, Sparkles, Award, Crown, TrendingUp } from 'lucide-react';
+import { Trophy, Flame, ShieldCheck, Lock, Star, Sparkles, Award, Crown, TrendingUp, ShieldX, ShieldAlert } from 'lucide-react';
 
 interface LeaderboardAnonimoProps {
   restaurantes: Restaurante[];
@@ -10,17 +10,19 @@ interface LeaderboardAnonimoProps {
 export const LeaderboardAnonimo: React.FC<LeaderboardAnonimoProps> = ({
   restaurantes,
 }) => {
-  // Public client view is strictly anonymous for integrity
-  const sorted = [...restaurantes].sort((a, b) => {
-    if (b.promedioRating === a.promedioRating) {
-      return b.votosCount - a.votosCount;
-    }
-    return b.promedioRating - a.promedioRating;
-  });
+  // Los restaurantes descalificados quedan completamente fuera del Leaderboard oficial en vivo
+  const sorted = [...restaurantes]
+    .filter(r => !r.descalificado)
+    .sort((a, b) => {
+      if (b.promedioRating === a.promedioRating) {
+        return b.votosCount - a.votosCount;
+      }
+      return b.promedioRating - a.promedioRating;
+    });
 
   const totalVotos = sorted.reduce((acc, curr) => acc + curr.votosCount, 0);
 
-  // Top 3 for podium
+  // Top 3 for podium (solo participantes en competencia)
   const first = sorted[0];
   const second = sorted[1];
   const third = sorted[2];
@@ -152,7 +154,7 @@ export const LeaderboardAnonimo: React.FC<LeaderboardAnonimoProps> = ({
           if (isPodiumActive && remainingParticipants.length === 0) {
             return (
               <div className="text-center py-6 p-5 rounded-2xl bg-black/60 border border-stone-800 text-stone-400 text-xs">
-                <span>Todos los participantes registrados se encuentran compitiendo activamente en el <strong>Podio de Honor</strong>. Las nuevas posiciones (#4 en adelante) se listarán aquí conforme se sumen más competidores.</span>
+                <span>Todos los participantes activos se encuentran compitiendo en el <strong>Podio de Honor</strong>. Las nuevas posiciones (#4 en adelante) se listarán aquí conforme se sumen más competidores.</span>
               </div>
             );
           }
