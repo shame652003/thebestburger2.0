@@ -12,7 +12,9 @@ service cloud.firestore {
     }
 
     function isCommitteeAdmin() {
-      return isVerifiedUser()
+      // El correo del comité puede ser real o inventado: el gate es el documento
+      // 'admins/{uid}' (solo escribible desde la consola de Firebase).
+      return isSignedIn()
         && exists(/databases/$(database)/documents/admins/$(request.auth.uid))
         && get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.activo != false;
     }

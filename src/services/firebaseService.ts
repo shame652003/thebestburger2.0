@@ -385,18 +385,14 @@ export const loginAdminFirebase = async (
     const cred = await signInWithEmailAndPassword(auth, cleanEmail, password);
     const u = cred.user;
 
-    if (!u.emailVerified) {
-      try {
+    // El correo del comité puede ser real o inventado: el gate de acceso es la
+    // existencia del documento 'admins/{uid}' (solo escribible desde la consola
+    // de Firebase), no la verificación del correo.
+    try {
+      if (u.email && !u.emailVerified) {
         await sendEmailVerification(u);
-      } catch {}
-      await signOut(auth);
-      setStoredComensalUser(null);
-      notifyAuthSubscribers(null);
-      return {
-        success: false,
-        error: "El correo del administrador aún no está verificado. Hemos enviado un enlace de verificación a tu bandeja."
-      };
-    }
+      }
+    } catch {}
 
     // Verificar pertenencia en la colección protegida 'admins/{uid}'
     const adminRef = doc(db, "admins", u.uid);
@@ -432,7 +428,7 @@ export const loginAdminFirebase = async (
     }
     return {
       success: false,
-      error: "Credenciales no autorizadas. Verifica tu correo y clave maestra del comité."
+      error: "Correo o clave maestra del comité incorrectos. Verifica tus credenciales."
     };
   }
 };
@@ -440,7 +436,7 @@ export const loginAdminFirebase = async (
 export const verifyAdminSessionFirebase = async (expectedUid: string): Promise<boolean> => {
   try {
     const u = auth.currentUser;
-    if (!u || u.uid !== expectedUid || !u.emailVerified) {
+    if (!u || u.uid !== expectedUid) {
       return false;
     }
     const adminSnap = await getDoc(doc(db, "admins", expectedUid));

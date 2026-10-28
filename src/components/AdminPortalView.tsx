@@ -100,6 +100,213 @@ interface AdminSessionData {
   lastActivity: number;
 }
 
+// --- VALIDACIONES DE REGISTRO / EDICIÓN DE RESTAURANTES ---
+interface RestaurantFormData {
+  nombre: string;
+  nombreHamburguesa: string;
+  slogan: string;
+  descripcion: string;
+  ingredientesRaw: string;
+  precio: string;
+  direccion: string;
+  instagram: string;
+  videoUrl: string;
+  usuarioAcceso: string;
+  claveAcceso: string;
+}
+
+interface RestaurantFormFiles {
+  fotoFile: File | null;
+  logoFile: File | null;
+}
+
+interface RestaurantValidationOptions {
+  requireImages: boolean;
+  requireInstagram: boolean;
+  existingRestaurantes: Restaurante[];
+  editingId?: string;
+}
+
+interface ValidationIssue {
+  field: string;
+  message: string;
+}
+
+const MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024;
+const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+
+const REST_NAME_REGEX = /^[A-Za-zÀ-ÿ0-9\s&.'-]+$/;
+const REST_SLOGAN_REGEX = /^[A-Za-zÀ-ÿ0-9\s&.,'!¡?¿()-]*$/;
+const REST_ADDRESS_REGEX = /^[A-Za-zÀ-ÿ0-9\s#.,°/-]+$/;
+const INGREDIENT_REGEX = /^[A-Za-zÀ-ÿ0-9\s&.'()/-]+$/;
+const INSTAGRAM_HANDLE_REGEX = /^@?[A-Za-z0-9._]{1,30}$/;
+const PRICE_REGEX = /^\$?\s?\d{1,3}([.,]\d{1,2})?$/;
+const ACCESS_USER_REGEX = /^[a-z0-9._-]{3,24}$/;
+const ACCESS_PASS_REGEX = /^\S{6,32}$/;
+const VIDEO_ALLOWED_HOSTS = ['instagram.com', 'youtube.com', 'youtu.be', 'tiktok.com', 'facebook.com', 'fb.watch'];
+
+const escapeHtml = (text: string): string =>
+  text.replace(/[&<>"']/g, (char) => {
+    switch (char) {
+      case '&': return '&amp;';
+      case '<': return '&lt;';
+      case '>': return '&gt;';
+      case '"': return '&quot;';
+      default: return '&#39;';
+    }
+  });
+
+const isValidVideoUrl = (raw: string): boolean => {
+  try {
+    const url = new URL(raw);
+    if (!['http:', 'https:'].includes(url.protocol)) return false;
+    const host = url.hostname.replace(/^www\./i, '').toLowerCase();
+    if (VIDEO_ALLOWED_HOSTS.some((allowed) => host === allowed || host.endsWith(`.${allowed}`))) {
+      return true;
+    }
+    return /\.(mp4|webm|mov)$/i.test(url.pathname);
+  } catch {
+    return false;
+  }
+};
+
+const validateRestaurantForm = (
+  data: RestaurantFormData,
+  files: RestaurantFormFiles,
+  options: RestaurantValidationOptions
+): ValidationIssue[] => {
+  const issues: ValidationIssue[] = [];
+  const add = (field: string, message: string) => issues.push({ field, message });
+
+  const nombre = data.nombre.trim().replace(/\s+/g, ' ');
+  if (!nombre) {
+    add('nombre', 'El nombre del restaurante es obligatorio.');
+  } else if (nombre.length < 3 || nombre.length > 60) {
+    add('nombre', 'El nombre del restaurante debe tener entre 3 y 60 caracteres.');
+  } else if (!REST_NAME_REGEX.test(nombre)) {
+    add('nombre', 'El nombre del restaurante solo admite letras, números, espacios y los signos & . \' -');
+  }
+
+  const nombreHamburguesa = data.nombreHamburguesa.trim().replace(/\s+/g, ' ');
+  if (!nombreHamburguesa) {
+    add('nombreHamburguesa', 'El nombre del plato o creación es obligatorio.');
+  } else if (nombreHamburguesa.length < 3 || nombreHamburguesa.length > 80) {
+    add('nombreHamburguesa', 'El nombre del plato debe tener entre 3 y 80 caracteres.');
+  } else if (!REST_NAME_REGEX.test(nombreHamburguesa)) {
+    add('nombreHamburguesa', 'El nombre del plato solo admite letras, números, espacios y los signos & . \' -');
+  }
+
+  const slogan = data.slogan.trim().replace(/\s+/g, ' ');
+  if (slogan.length > 80) {
+    add('slogan', 'El slogan no puede superar los 80 caracteres.');
+  } else if (slogan && !REST_SLOGAN_REGEX.test(slogan)) {
+    add('slogan', 'El slogan contiene caracteres no permitidos.');
+  }
+
+  const precio = data.precio.trim();
+  if (precio) {
+    if (!PRICE_REGEX.test(precio)) {
+      add('precio', 'El precio debe tener el formato $8.00 (máximo 3 enteros y 2 decimales).');
+    } else {
+      const numericPrice = parseFloat(precio.replace('$', '').replace(',', '.').trim());
+      if (!Number.isFinite(numericPrice) || numericPrice <= 0 || numericPrice > 999.99) {
+        add('precio', 'El precio debe ser mayor que 0 y menor o igual a 999.99.');
+      }
+    }
+  }
+
+  const instagram = data.instagram.trim();
+  if (!instagram && options.requireInstagram) {
+    add('instagram', 'El usuario de Instagram es obligatorio.');
+  } else if (instagram) {
+    const urlMatch = instagram.match(/(?:instagram\.com\/)([A-Za-z0-9._]+)/i);
+    const handle = urlMatch ? urlMatch[1] : instagram;
+    if (!INSTAGRAM_HANDLE_REGEX.test(handle)) {
+      add('instagram', 'Ingresa un usuario válido de Instagram (ej: @mitocuyoburger) o su URL oficial.');
+    }
+  }
+
+  const direccion = data.direccion.trim().replace(/\s+/g, ' ');
+  if (direccion) {
+    if (direccion.length < 5 || direccion.length > 120) {
+      add('direccion', 'La dirección debe tener entre 5 y 120 caracteres.');
+    } else if (!REST_ADDRESS_REGEX.test(direccion)) {
+      add('direccion', 'La dirección contiene caracteres no permitidos.');
+    }
+  }
+
+  const videoUrl = data.videoUrl.trim();
+  if (videoUrl && !isValidVideoUrl(videoUrl)) {
+    add('videoUrl', 'El enlace de video debe ser una URL válida de Instagram, YouTube, TikTok o un archivo MP4/WebM.');
+  }
+
+  const ingredientesRaw = data.ingredientesRaw.trim();
+  if (ingredientesRaw) {
+    const ingredientes = ingredientesRaw.split(',').map((item) => item.trim()).filter(Boolean);
+    const invalido = ingredientes.find((item) => item.length < 2 || item.length > 40 || !INGREDIENT_REGEX.test(item));
+    if (ingredientes.length === 0 || invalido !== undefined) {
+      add('ingredientesRaw', 'Cada ingrediente debe tener entre 2 y 40 caracteres y estar separado por comas.');
+    }
+  }
+
+  if (data.descripcion.trim().length > 400) {
+    add('descripcion', 'La descripción no puede superar los 400 caracteres.');
+  }
+
+  const usuario = data.usuarioAcceso.trim().toLowerCase();
+  if (usuario) {
+    if (!ACCESS_USER_REGEX.test(usuario)) {
+      add('usuarioAcceso', 'El usuario debe tener entre 3 y 24 caracteres: minúsculas, números, puntos, guiones o guiones bajos.');
+    } else {
+      const duplicado = options.existingRestaurantes.some((restaurante) => {
+        if (restaurante.id === options.editingId) return false;
+        const existente = (restaurante.usuarioAcceso || restaurante.nombre.toLowerCase().replace(/[^a-z0-9]/g, '')).toLowerCase();
+        return existente === usuario;
+      });
+      if (duplicado) {
+        add('usuarioAcceso', 'Ese usuario de acceso ya está asignado a otro restaurante.');
+      }
+    }
+  }
+
+  const clave = data.claveAcceso.trim();
+  if (clave && !ACCESS_PASS_REGEX.test(clave)) {
+    add('claveAcceso', 'La contraseña debe tener entre 6 y 32 caracteres y no contener espacios.');
+  }
+
+  if (nombre) {
+    const nombreDuplicado = options.existingRestaurantes.some(
+      (restaurante) => restaurante.id !== options.editingId && restaurante.nombre.trim().toLowerCase() === nombre.toLowerCase()
+    );
+    if (nombreDuplicado) {
+      add('nombre', 'Ya existe un restaurante registrado con ese nombre.');
+    }
+  }
+
+  const validateImage = (file: File | null, field: string, label: string, required: boolean) => {
+    if (!file) {
+      if (required) add(field, `Debes subir ${label}.`);
+      return;
+    }
+    if (file.size === 0) {
+      add(field, `El archivo de ${label} está vacío o dañado.`);
+      return;
+    }
+    if (!ALLOWED_IMAGE_TYPES.includes(file.type.toLowerCase())) {
+      add(field, `${label} debe ser una imagen JPG, PNG o WebP.`);
+      return;
+    }
+    if (file.size > MAX_IMAGE_SIZE_BYTES) {
+      add(field, `${label} no puede superar los 5 MB.`);
+    }
+  };
+
+  validateImage(files.fotoFile, 'fotoFile', 'la foto de la creación', options.requireImages);
+  validateImage(files.logoFile, 'logoFile', 'el logo del restaurante', options.requireImages);
+
+  return issues;
+};
+
 const computeSha256Hex = async (text: string): Promise<string> => {
   const data = new TextEncoder().encode(text);
   const hashBuffer = await window.crypto.subtle.digest('SHA-256', data);
@@ -160,6 +367,8 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [isUploadingRest, setIsUploadingRest] = useState(false);
   const [registerSuccess, setRegisterSuccess] = useState<boolean>(false);
+  const [restFormErrors, setRestFormErrors] = useState<Record<string, string>>({});
+  const submitRestLockRef = useRef<boolean>(false);
 
   // Edit Video Modal state
   const [editingVideoRest, setEditingVideoRest] = useState<Restaurante | null>(null);
@@ -186,6 +395,7 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
   const [editLogoFile, setEditLogoFile] = useState<File | null>(null);
   const [isSavingEditRest, setIsSavingEditRest] = useState(false);
   const [editRestSuccess, setEditRestSuccess] = useState(false);
+  const submitEditLockRef = useRef<boolean>(false);
 
   // Disqualification Security Modal state (verificado por hash SHA-256)
   const [disqualifyTargetRest, setDisqualifyTargetRest] = useState<Restaurante | null>(null);
@@ -269,6 +479,83 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
       .map(s => s.charAt(0).toUpperCase() + s.slice(1))
       .join(', ');
   };
+
+  const SWAL_THEME = {
+    background: '#0F0F0F',
+    color: '#FFF9ED',
+    confirmButtonColor: '#A40B03',
+    iconColor: '#A40B03',
+  };
+
+  const showValidationIssues = async (title: string, intro: string, issues: ValidationIssue[]) => {
+    const list = issues
+      .map((issue) => `<li style="margin-bottom:6px;">${escapeHtml(issue.message)}</li>`)
+      .join('');
+
+    await Swal.fire({
+      title,
+      html: `
+        <div style="text-align:left;font-size:12px;line-height:1.5;">
+          <p style="margin:0 0 8px;">${escapeHtml(intro)}</p>
+          <ul style="margin:0;padding-left:18px;">${list}</ul>
+        </div>
+      `,
+      icon: 'error',
+      ...SWAL_THEME,
+      confirmButtonText: 'Revisar formulario',
+    });
+  };
+
+  const showRestaurantValidationErrors = async (issues: ValidationIssue[]) => {
+    setRestFormErrors(
+      issues.reduce<Record<string, string>>((acc, issue) => {
+        if (!acc[issue.field]) acc[issue.field] = issue.message;
+        return acc;
+      }, {})
+    );
+
+    await showValidationIssues(
+      'Datos inválidos',
+      'Corrige los siguientes campos antes de inscribir el restaurante:',
+      issues
+    );
+  };
+
+  const showRestaurantError = async (title: string, message: string) => {
+    await Swal.fire({
+      title,
+      text: message,
+      icon: 'error',
+      ...SWAL_THEME,
+      confirmButtonText: 'Entendido',
+    });
+  };
+
+  const updateNewRestField = (field: keyof RestaurantFormData, value: string) => {
+    setNewRest((prev) => ({ ...prev, [field]: value }));
+    setRestFormErrors((prev) => {
+      if (!prev[field]) return prev;
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
+  };
+
+  const clearRestFileError = (field: 'fotoFile' | 'logoFile') => {
+    setRestFormErrors((prev) => {
+      if (!prev[field]) return prev;
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
+  };
+
+  const restInputClass = (field: string, extra = '') =>
+    `w-full px-4 py-2.5 rounded-xl bg-black border text-[#FFF9ED] text-xs outline-none transition-colors ${
+      restFormErrors[field]
+        ? 'border-red-500/70 focus:border-red-500'
+        : 'border-stone-800 focus:border-[#A40B03]'
+    } ${extra}`;
 
   const autoFormatNewRest = () => {
     setNewRest(prev => ({
@@ -662,62 +949,111 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
 
   const handleCreateRestaurante = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newRest.nombre || !newRest.nombreHamburguesa || !fotoFile || !logoFile) {
-      alert("Por favor completa todos los campos y sube las 2 imágenes (Logo y Hamburguesa).");
+    if (isUploadingRest || submitRestLockRef.current) return;
+
+    submitRestLockRef.current = true;
+    setRestFormErrors({});
+
+    const issues = validateRestaurantForm(
+      newRest,
+      { fotoFile, logoFile },
+      { requireImages: true, requireInstagram: true, existingRestaurantes: restaurantes }
+    );
+
+    if (issues.length > 0) {
+      submitRestLockRef.current = false;
+      await showRestaurantValidationErrors(issues);
       return;
     }
 
     setIsUploadingRest(true);
-    
+
     try {
       // Compress and convert to base64
-      const fotoUrl = await convertImageToBase64(fotoFile);
-      const logoUrl = await convertImageToBase64(logoFile, 400); // 400px is enough for a logo
+      const fotoUrl = await convertImageToBase64(fotoFile as File);
+      const logoUrl = await convertImageToBase64(logoFile as File, 400); // 400px is enough for a logo
 
       const nextNumber = restaurantes.length + 1;
-      
-      const defaultUser = newRest.nombre.toLowerCase().replace(/[^a-z0-9]/g, '');
+      const normalizedName = toTitleCase(newRest.nombre);
+
+      const baseUser = normalizedName.toLowerCase().replace(/[^a-z0-9]/g, '') || `burger${nextNumber}`;
+      let defaultUser = baseUser;
+      let suffix = 1;
+      while (
+        restaurantes.some((restaurante) => {
+          const existente = (restaurante.usuarioAcceso || restaurante.nombre.toLowerCase().replace(/[^a-z0-9]/g, '')).toLowerCase();
+          return existente === defaultUser;
+        })
+      ) {
+        defaultUser = `${baseUser}${suffix}`;
+        suffix += 1;
+      }
+
       const defaultPass = 'burger2026';
+      const finalUser = newRest.usuarioAcceso.trim().toLowerCase() || defaultUser;
+      const finalPass = newRest.claveAcceso.trim() || defaultPass;
 
       const success = await addRestauranteFirebase({
-        nombre: newRest.nombre,
-        nombreHamburguesa: newRest.nombreHamburguesa,
-        slogan: newRest.slogan,
-        descripcion: newRest.descripcion,
-        ingredientes: newRest.ingredientesRaw.split(',').map((s) => s.trim()),
-        precio: newRest.precio,
+        nombre: normalizedName,
+        nombreHamburguesa: toTitleCase(newRest.nombreHamburguesa),
+        slogan: toSentenceCase(newRest.slogan),
+        descripcion: toSentenceCase(newRest.descripcion),
+        ingredientes: newRest.ingredientesRaw.split(',').map((s) => s.trim()).filter(Boolean),
+        precio: formatPrice(newRest.precio),
         fotoUrl,
         logoUrl,
-        direccion: newRest.direccion,
-        instagram: newRest.instagram.startsWith('@') ? newRest.instagram : `@${newRest.instagram}`,
+        direccion: toSentenceCase(newRest.direccion),
+        instagram: formatInstagramHandle(newRest.instagram),
         videoUrl: newRest.videoUrl.trim() || undefined,
-        usuarioAcceso: newRest.usuarioAcceso.trim() || defaultUser,
-        claveAcceso: newRest.claveAcceso.trim() || defaultPass,
+        usuarioAcceso: finalUser,
+        claveAcceso: finalPass,
         activo: true,
         votosCount: 0,
         promedioRating: 0,
         rankingAnonimoTag: `Participante #${nextNumber}`
       });
 
-      if (success) {
-        setRegisterSuccess(true);
-        onRestaurantesUpdated();
-        setTimeout(() => setRegisterSuccess(false), 3000);
-        
-        // Limpiar
-        setNewRest({
-          nombre: '', nombreHamburguesa: '', slogan: '', descripcion: '', 
-          ingredientesRaw: '', precio: '', direccion: '', instagram: '',
-          videoUrl: '', usuarioAcceso: '', claveAcceso: ''
-        });
-        setFotoFile(null);
-        setLogoFile(null);
+      if (!success) {
+        throw new Error('Firebase no confirmó el registro. Verifica tu conexión e inténtalo nuevamente.');
       }
+
+      setRegisterSuccess(true);
+      onRestaurantesUpdated();
+      setTimeout(() => setRegisterSuccess(false), 5000);
+
+      // Limpiar
+      setNewRest({
+        nombre: '', nombreHamburguesa: '', slogan: '', descripcion: '',
+        ingredientesRaw: '', precio: '', direccion: '', instagram: '',
+        videoUrl: '', usuarioAcceso: '', claveAcceso: ''
+      });
+      setFotoFile(null);
+      setLogoFile(null);
+      setRestFormErrors({});
+
+      await Swal.fire({
+        title: '¡Restaurante inscrito!',
+        html: `
+          <div style="text-align:left;font-size:12px;line-height:1.6;">
+            <p style="margin:0 0 10px;"><strong>${escapeHtml(normalizedName)}</strong> fue registrado exitosamente en la competencia.</p>
+            <div style="padding:10px 12px;border-radius:10px;background:#000;border:1px solid #292524;">
+              <p style="margin:0 0 4px;"><strong>Usuario de acceso:</strong> <span style="font-family:monospace;">${escapeHtml(finalUser)}</span></p>
+              <p style="margin:0;"><strong>Contraseña:</strong> <span style="font-family:monospace;color:#FBBF24;">${escapeHtml(finalPass)}</span></p>
+            </div>
+            <p style="margin:10px 0 0;color:#A8A29E;">Guarda estas credenciales y compártelas con el encargado del restaurante.</p>
+          </div>
+        `,
+        icon: 'success',
+        ...SWAL_THEME,
+        confirmButtonText: 'Entendido',
+      });
     } catch (error) {
       console.error(error);
-      alert("Error al subir el restaurante o las imágenes. Revisa la consola.");
+      const message = error instanceof Error ? error.message : 'Error al subir el restaurante o las imágenes. Inténtalo nuevamente.';
+      await showRestaurantError('No se pudo inscribir el restaurante', message);
     } finally {
       setIsUploadingRest(false);
+      submitRestLockRef.current = false;
     }
   };
 
@@ -748,10 +1084,33 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
   const handleSaveRestaurantEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingRest) return;
+    if (isSavingEditRest || submitEditLockRef.current) return;
     if (editingRest.descalificado) {
-      alert("No se pueden modificar los datos de un participante descalificado.");
+      await showRestaurantError('Acción no permitida', 'No se pueden modificar los datos de un participante descalificado.');
       return;
     }
+
+    const issues = validateRestaurantForm(
+      editRestForm,
+      { fotoFile: editFotoFile, logoFile: editLogoFile },
+      {
+        requireImages: false,
+        requireInstagram: false,
+        existingRestaurantes: restaurantes,
+        editingId: editingRest.id,
+      }
+    );
+
+    if (issues.length > 0) {
+      await showValidationIssues(
+        'Datos inválidos',
+        'Corrige los siguientes campos antes de guardar la ficha:',
+        issues
+      );
+      return;
+    }
+
+    submitEditLockRef.current = true;
     setIsSavingEditRest(true);
 
     try {
@@ -769,7 +1128,7 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
         direccion: toSentenceCase(editRestForm.direccion),
         instagram: formatInstagramHandle(editRestForm.instagram),
         videoUrl: editRestForm.videoUrl.trim() || "",
-        usuarioAcceso: editRestForm.usuarioAcceso.trim() || undefined,
+        usuarioAcceso: editRestForm.usuarioAcceso.trim().toLowerCase() || undefined,
         claveAcceso: editRestForm.claveAcceso.trim() || undefined
       };
 
@@ -781,21 +1140,29 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
       }
 
       const ok = await updateRestauranteFirebase(editingRest.id, updates);
-      if (ok) {
-        setEditRestSuccess(true);
-        onRestaurantesUpdated();
-        setTimeout(() => {
-          setEditRestSuccess(false);
-          setEditingRest(null);
-        }, 1500);
-      } else {
-        alert("Error al actualizar la información en Firebase. Revisa los datos ingresados.");
+      if (!ok) {
+        throw new Error('Firebase no confirmó la actualización. Revisa los datos ingresados e inténtalo nuevamente.');
       }
-    } catch (err: any) {
+
+      setEditRestSuccess(true);
+      onRestaurantesUpdated();
+      setTimeout(() => setEditRestSuccess(false), 5000);
+      setEditingRest(null);
+
+      await Swal.fire({
+        title: '¡Ficha actualizada!',
+        text: 'La información del restaurante se guardó correctamente en Firebase.',
+        icon: 'success',
+        ...SWAL_THEME,
+        confirmButtonText: 'Entendido',
+      });
+    } catch (err) {
       console.error(err);
-      alert(err.message || "Error procesando los cambios.");
+      const message = err instanceof Error ? err.message : 'Error procesando los cambios.';
+      await showRestaurantError('No se pudo actualizar la ficha', message);
     } finally {
       setIsSavingEditRest(false);
+      submitEditLockRef.current = false;
     }
   };
 
@@ -1058,51 +1425,152 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
 
   if (printRestId) {
     const printRest = restaurantes.find(r => r.id === printRestId);
-    const printCodes = codigos.filter(c => c.restauranteId === printRestId);
+    const allRestCodes = codigos.filter(c => c.restauranteId === printRestId);
+    // Solo códigos DISPONIBLES (no usados) para imprimir
+    const printCodes = allRestCodes
+      .filter(c => !c.usado)
+      .sort((a, b) => a.codigo.localeCompare(b.codigo));
+    const totalDisponibles = printCodes.length;
+    const totalUsados = allRestCodes.length - totalDisponibles;
+    const totalPages = Math.ceil(totalDisponibles / 12);
+    // 12 tickets por página A4 (3 columnas x 4 filas)
+    const codePages: CodigoVoto[][] = [];
+    for (let i = 0; i < printCodes.length; i += 12) {
+      codePages.push(printCodes.slice(i, i + 12));
+    }
+    const restLogo = printRest?.logoUrl || logoRed;
     
     return (
-      <div className="bg-white text-stone-950 min-h-screen relative pb-20">
+      <div className="bg-stone-200 text-stone-950 min-h-screen relative pb-44">
         <style>{`
           @media print {
             .no-print { display: none !important; }
-            @page { margin: 0.5cm; }
-            body { background: white; }
+            @page { size: A4 portrait; margin: 8mm; }
+            html, body { background: white !important; }
+            .print-page {
+              width: 100% !important;
+              max-width: none !important;
+              margin: 0 !important;
+              padding: 0 !important;
+              border: none !important;
+              border-radius: 0 !important;
+              box-shadow: none !important;
+              background: white !important;
+            }
+            .print-page + .print-page { page-break-before: always; }
+            .ticket { break-inside: avoid; page-break-inside: avoid; }
+            .ticket, .ticket * {
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+            }
           }
         `}</style>
         
         {/* Floating Controls (Hidden in Print) */}
-        <div className="no-print fixed bottom-6 right-6 flex gap-4 bg-black p-4 rounded-2xl shadow-2xl border border-stone-800 z-50">
-          <button onClick={() => setPrintRestId(null)} className="px-6 py-2.5 rounded-xl bg-stone-900 text-stone-200 font-bold text-sm hover:bg-stone-800">
-            Volver al Panel
-          </button>
-          <button onClick={() => window.print()} className="px-6 py-2.5 rounded-xl bg-[#A40B03] text-[#FFF9ED] font-black text-sm hover:bg-[#BF0E05] flex items-center gap-2 border border-[#A40B03]/60 shadow-lg shadow-[#A40B03]/30">
-            <QrCode className="w-5 h-5 text-[#FFF9ED]" /> <span>Imprimir PDF / Tickets</span>
-          </button>
+        <div className="no-print fixed bottom-6 right-6 z-50 flex flex-col items-end gap-3">
+          <div className="bg-black/95 backdrop-blur px-5 py-4 rounded-2xl shadow-2xl border border-stone-800 text-right space-y-1">
+            <div className="text-[10px] text-stone-400 uppercase tracking-wider font-bold">Tickets para</div>
+            <div className="text-sm font-black text-[#FFF9ED]">{printRest?.nombre}</div>
+            <div className="text-xs text-stone-400 font-mono">
+              <span className="text-emerald-400 font-black">{totalDisponibles}</span> disponibles
+              {totalUsados > 0 && <span> · <span className="text-stone-500">{totalUsados}</span> usados excluidos</span>}
+            </div>
+            <div className="text-[11px] text-stone-500">
+              {totalDisponibles > 0
+                ? `${totalPages} página${totalPages === 1 ? '' : 's'} A4 · 12 tickets por hoja`
+                : 'Sin códigos por imprimir'}
+            </div>
+          </div>
+          <div className="flex gap-4 bg-black p-4 rounded-2xl shadow-2xl border border-stone-800">
+            <button onClick={() => setPrintRestId(null)} className="px-6 py-2.5 rounded-xl bg-stone-900 text-stone-200 font-bold text-sm hover:bg-stone-800">
+              Volver al Panel
+            </button>
+            <button
+              onClick={() => window.print()}
+              disabled={totalDisponibles === 0}
+              className="px-6 py-2.5 rounded-xl bg-[#A40B03] text-[#FFF9ED] font-black text-sm hover:bg-[#BF0E05] flex items-center gap-2 border border-[#A40B03]/60 shadow-lg shadow-[#A40B03]/30 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Printer className="w-5 h-5 text-[#FFF9ED]" /> <span>Imprimir PDF / Tickets</span>
+            </button>
+          </div>
         </div>
 
         <div className="p-4 sm:p-8">
-          <div className="text-center mb-8 no-print">
-            <h1 className="text-3xl font-black text-stone-950">Tickets para {printRest?.nombre}</h1>
-            <p className="text-stone-500">Configura tu impresora para guardar como PDF o imprimir directamente.</p>
-          </div>
+          {totalDisponibles === 0 ? (
+            <div className="max-w-lg mx-auto mt-16 p-10 rounded-3xl bg-white border-2 border-dashed border-stone-300 text-center shadow-lg">
+              <QrCode className="w-12 h-12 text-stone-300 mx-auto mb-3" />
+              <h2 className="text-xl font-black text-stone-800">Sin códigos disponibles</h2>
+              <p className="text-sm text-stone-500 mt-2">
+                Todos los códigos de {printRest?.nombre || 'este restaurante'} ya fueron usados en votación.
+              </p>
+              <button onClick={() => setPrintRestId(null)} className="mt-6 px-6 py-3 rounded-xl bg-[#A40B03] text-[#FFF9ED] font-bold text-sm hover:bg-[#BF0E05]">
+                Volver al Panel
+              </button>
+            </div>
+          ) : (
 
-          {/* Tickets Grid */}
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-            {printCodes.map((c, i) => (
-              <div key={c.id} className="ticket border-2 border-black border-dashed rounded-xl p-4 flex flex-col items-center justify-center text-center bg-white shadow-sm">
-                <img src={logoRed} alt="Food Fest" className="h-7 w-auto mb-1 object-contain" />
-                <div className="font-black text-xs uppercase tracking-wider text-[#A40B03]">Food Fest 2026 • El Tocuyo</div>
-                <div className="font-extrabold text-base leading-tight my-1 text-stone-900">{printRest?.nombre}</div>
-                <div className="bg-stone-50 border-2 border-black px-4 py-2 w-full rounded-lg shadow-inner my-1.5">
-                  <div className="font-mono font-black text-xl tracking-widest text-black">{c.codigo}</div>
+            codePages.map((pageCodes, pageIndex) => (
+              <div key={pageIndex} className="print-page max-w-[194mm] mx-auto mb-6 p-5 bg-white rounded-2xl shadow-lg border border-stone-300">
+                {/* Page Header (impresión y vista previa) */}
+                <div className="flex items-center justify-between gap-4 border-b-2 border-[#A40B03] pb-3 mb-4">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <img
+                      src={restLogo}
+                      alt={printRest?.nombre || 'Restaurante'}
+                      className="h-14 w-14 rounded-xl object-cover border border-[#A40B03]/40 shrink-0"
+                      onError={(e) => { (e.currentTarget as HTMLImageElement).src = logoRed; }}
+                    />
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <img src={logoRed} alt="Food Fest" className="h-4 w-auto object-contain" />
+                        <span className="text-[10px] font-black uppercase tracking-[0.25em] text-[#A40B03]">Food Fest 2026 • El Tocuyo</span>
+                      </div>
+                      <div className="text-xl font-black text-stone-900 leading-tight truncate">{printRest?.nombre}</div>
+                      <div className="text-[11px] text-stone-500 font-semibold truncate">{printRest?.nombreHamburguesa}</div>
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <div className="text-[11px] text-stone-500 font-semibold">
+                      Página <span className="font-black text-stone-900">{pageIndex + 1}</span> de {totalPages}
+                    </div>
+                    <div className="text-[10px] font-mono text-stone-400">{totalDisponibles} códigos disponibles</div>
+                  </div>
                 </div>
-                <div className="text-[10px] text-stone-600 font-semibold mt-1 max-w-[180px]">
-                  Código único e intransferible. Escanea el código QR del restaurante para votar.
+
+                {/* 12 tickets por página: 3 columnas x 4 filas */}
+                <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(3, 1fr)', gridTemplateRows: 'repeat(4, 1fr)' }}>
+                  {pageCodes.map((c, i) => {
+                    const globalIndex = pageIndex * 12 + i + 1;
+                    return (
+                      <div key={c.id} className="ticket relative border-2 border-dashed border-stone-800 rounded-xl px-2.5 pt-3 pb-2 flex flex-col items-center text-center bg-white overflow-hidden">
+                        <div className="absolute inset-x-0 top-0 h-1 bg-[#A40B03]" />
+                        <div className="flex items-center justify-center gap-2 mt-0.5">
+                          <img src={logoRed} alt="Food Fest 2026" className="h-7 w-auto object-contain" />
+                          <span className="h-6 w-px bg-stone-300" />
+                          <img
+                            src={restLogo}
+                            alt={printRest?.nombre || 'Restaurante'}
+                            className="h-7 w-7 rounded-md object-contain border border-stone-200 shrink-0"
+                            onError={(e) => { (e.currentTarget as HTMLImageElement).src = logoRed; }}
+                          />
+                        </div>
+                        <div className="font-black text-[10px] uppercase tracking-wide text-stone-900 leading-tight mt-1 max-w-full truncate">{printRest?.nombre}</div>
+                        <div className="text-[8px] text-stone-500 font-semibold max-w-full truncate">{printRest?.nombreHamburguesa}</div>
+                        <div className="border-2 border-stone-900 bg-stone-50 px-2 py-1.5 w-full rounded-md my-1.5">
+                          <div className="font-mono font-black text-base tracking-[0.15em] text-black leading-none break-all">{c.codigo}</div>
+                        </div>
+                        <div className="text-[7.5px] text-stone-500 font-semibold leading-snug">Código único e intransferible • Válido para 1 voto</div>
+                        <div className="flex items-center justify-between w-full mt-1.5 pt-1 border-t border-dotted border-stone-300">
+                          <span className="text-[7px] font-mono text-stone-400">#{String(globalIndex).padStart(3, '0')}</span>
+                          <span className="text-[7px] font-black text-[#A40B03] uppercase tracking-wider">Food Fest 2026</span>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-                <div className="text-[9px] text-stone-400 mt-2 font-mono">#{i + 1}</div>
               </div>
-            ))}
-          </div>
+            ))
+          )}
         </div>
       </div>
     );
@@ -1793,7 +2261,7 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
                   </div>
 
                   {/* Modal Body (Single Scrollbar) */}
-                  <form id="edit-rest-form" onSubmit={handleSaveRestaurantEdit} className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-4">
+                  <form id="edit-rest-form" onSubmit={handleSaveRestaurantEdit} className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-4" noValidate autoComplete="off">
                     {/* Auto-format Button */}
                     <div className="flex items-center justify-between pb-1 border-b border-stone-900">
                       <span className="text-xs text-stone-400 font-medium">
@@ -2163,51 +2631,130 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
                 </div>
               </div>
 
-              <form onSubmit={handleCreateRestaurante} className="space-y-4">
+              <form onSubmit={handleCreateRestaurante} className="space-y-4" noValidate autoComplete="off">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-semibold text-stone-400 mb-1">Restaurante</label>
-                    <input type="text" required value={newRest.nombre} onChange={(e) => setNewRest({ ...newRest, nombre: e.target.value })} placeholder="Ej: Asador Tocuyano BBQ" className="w-full px-4 py-2.5 rounded-xl bg-black border border-stone-800 text-[#FFF9ED] text-xs outline-none focus:border-[#A40B03]" />
+                    <input
+                      type="text"
+                      required
+                      maxLength={60}
+                      value={newRest.nombre}
+                      onChange={(e) => updateNewRestField('nombre', e.target.value)}
+                      placeholder="Ej: Asador Tocuyano BBQ"
+                      aria-invalid={Boolean(restFormErrors.nombre)}
+                      className={restInputClass('nombre')}
+                    />
+                    {restFormErrors.nombre && <p className="text-[11px] text-red-400 mt-1">{restFormErrors.nombre}</p>}
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-stone-400 mb-1">Nombre Plato / Creación</label>
-                    <input type="text" required value={newRest.nombreHamburguesa} onChange={(e) => setNewRest({ ...newRest, nombreHamburguesa: e.target.value })} placeholder="Ej: La Tocuyana Especial" className="w-full px-4 py-2.5 rounded-xl bg-black border border-stone-800 text-[#FFF9ED] text-xs outline-none focus:border-[#A40B03]" />
+                    <input
+                      type="text"
+                      required
+                      maxLength={80}
+                      value={newRest.nombreHamburguesa}
+                      onChange={(e) => updateNewRestField('nombreHamburguesa', e.target.value)}
+                      placeholder="Ej: La Tocuyana Especial"
+                      aria-invalid={Boolean(restFormErrors.nombreHamburguesa)}
+                      className={restInputClass('nombreHamburguesa')}
+                    />
+                    {restFormErrors.nombreHamburguesa && <p className="text-[11px] text-red-400 mt-1">{restFormErrors.nombreHamburguesa}</p>}
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-stone-400 mb-1">Slogan</label>
-                    <input type="text" value={newRest.slogan} onChange={(e) => setNewRest({ ...newRest, slogan: e.target.value })} placeholder="Ej: Ahumado a fuego lento" className="w-full px-4 py-2.5 rounded-xl bg-black border border-stone-800 text-[#FFF9ED] text-xs outline-none focus:border-[#A40B03]" />
+                    <input
+                      type="text"
+                      maxLength={80}
+                      value={newRest.slogan}
+                      onChange={(e) => updateNewRestField('slogan', e.target.value)}
+                      placeholder="Ej: Ahumado a fuego lento"
+                      aria-invalid={Boolean(restFormErrors.slogan)}
+                      className={restInputClass('slogan')}
+                    />
+                    {restFormErrors.slogan && <p className="text-[11px] text-red-400 mt-1">{restFormErrors.slogan}</p>}
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-stone-400 mb-1">Precio</label>
-                    <input type="text" value={newRest.precio} onChange={(e) => setNewRest({ ...newRest, precio: e.target.value })} placeholder="Ej: $8.00" className="w-full px-4 py-2.5 rounded-xl bg-black border border-stone-800 text-[#FFF9ED] text-xs outline-none focus:border-[#A40B03]" />
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      maxLength={8}
+                      value={newRest.precio}
+                      onChange={(e) => updateNewRestField('precio', e.target.value)}
+                      placeholder="Ej: $8.00"
+                      aria-invalid={Boolean(restFormErrors.precio)}
+                      className={restInputClass('precio')}
+                    />
+                    {restFormErrors.precio && <p className="text-[11px] text-red-400 mt-1">{restFormErrors.precio}</p>}
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-stone-400 mb-1">Usuario de Instagram</label>
-                    <input type="text" required value={newRest.instagram} onChange={(e) => setNewRest({ ...newRest, instagram: e.target.value })} placeholder="Ej: @mitocuyoburger" className="w-full px-4 py-2.5 rounded-xl bg-black border border-stone-800 text-[#FFF9ED] text-xs outline-none focus:border-[#A40B03]" />
+                    <input
+                      type="text"
+                      required
+                      maxLength={100}
+                      value={newRest.instagram}
+                      onChange={(e) => updateNewRestField('instagram', e.target.value)}
+                      placeholder="Ej: @mitocuyoburger"
+                      aria-invalid={Boolean(restFormErrors.instagram)}
+                      className={restInputClass('instagram')}
+                    />
+                    {restFormErrors.instagram && <p className="text-[11px] text-red-400 mt-1">{restFormErrors.instagram}</p>}
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-stone-400 mb-1">Dirección</label>
-                    <input type="text" value={newRest.direccion} onChange={(e) => setNewRest({ ...newRest, direccion: e.target.value })} className="w-full px-4 py-2.5 rounded-xl bg-black border border-stone-800 text-[#FFF9ED] text-xs outline-none focus:border-[#A40B03]" />
+                    <input
+                      type="text"
+                      maxLength={120}
+                      value={newRest.direccion}
+                      onChange={(e) => updateNewRestField('direccion', e.target.value)}
+                      placeholder="Ej: Calle 5 con Av. principal, El Tocuyo"
+                      aria-invalid={Boolean(restFormErrors.direccion)}
+                      className={restInputClass('direccion')}
+                    />
+                    {restFormErrors.direccion && <p className="text-[11px] text-red-400 mt-1">{restFormErrors.direccion}</p>}
                   </div>
                   <div className="sm:col-span-2">
                     <label className="block text-xs font-semibold text-stone-400 mb-1">
                       <Film className="w-3.5 h-3.5 inline mr-1 text-[#A40B03]" /> URL de Video / Reel de Preparación (Instagram Reel o MP4)
                     </label>
-                    <input 
-                      type="url" 
-                      value={newRest.videoUrl} 
-                      onChange={(e) => setNewRest({ ...newRest, videoUrl: e.target.value })} 
-                      placeholder="Ej: https://www.instagram.com/reel/C... o https://servidor.com/video.mp4" 
-                      className="w-full px-4 py-2.5 rounded-xl bg-black border border-stone-800 text-[#FFF9ED] text-xs outline-none focus:border-[#A40B03]" 
+                    <input
+                      type="url"
+                      maxLength={300}
+                      value={newRest.videoUrl}
+                      onChange={(e) => updateNewRestField('videoUrl', e.target.value)}
+                      placeholder="Ej: https://www.instagram.com/reel/C... o https://servidor.com/video.mp4"
+                      aria-invalid={Boolean(restFormErrors.videoUrl)}
+                      className={restInputClass('videoUrl', 'font-mono')}
                     />
+                    {restFormErrors.videoUrl && <p className="text-[11px] text-red-400 mt-1">{restFormErrors.videoUrl}</p>}
                   </div>
                   <div className="sm:col-span-2">
                     <label className="block text-xs font-semibold text-stone-400 mb-1">Ingredientes (Separados por coma)</label>
-                    <input type="text" value={newRest.ingredientesRaw} onChange={(e) => setNewRest({ ...newRest, ingredientesRaw: e.target.value })} placeholder="Carne madurada, Queso local, Salsa especial" className="w-full px-4 py-2.5 rounded-xl bg-black border border-stone-800 text-[#FFF9ED] text-xs outline-none focus:border-[#A40B03]" />
+                    <input
+                      type="text"
+                      maxLength={200}
+                      value={newRest.ingredientesRaw}
+                      onChange={(e) => updateNewRestField('ingredientesRaw', e.target.value)}
+                      placeholder="Carne madurada, Queso local, Salsa especial"
+                      aria-invalid={Boolean(restFormErrors.ingredientesRaw)}
+                      className={restInputClass('ingredientesRaw')}
+                    />
+                    {restFormErrors.ingredientesRaw && <p className="text-[11px] text-red-400 mt-1">{restFormErrors.ingredientesRaw}</p>}
                   </div>
                   <div className="sm:col-span-2">
                     <label className="block text-xs font-semibold text-stone-400 mb-1">Descripción</label>
-                    <textarea rows={2} value={newRest.descripcion} onChange={(e) => setNewRest({ ...newRest, descripcion: e.target.value })} className="w-full px-4 py-2.5 rounded-xl bg-black border border-stone-800 text-[#FFF9ED] text-xs outline-none resize-none focus:border-[#A40B03]" />
+                    <textarea
+                      rows={2}
+                      maxLength={400}
+                      value={newRest.descripcion}
+                      onChange={(e) => updateNewRestField('descripcion', e.target.value)}
+                      placeholder="Describe la creación: textura, sabor y presentación..."
+                      aria-invalid={Boolean(restFormErrors.descripcion)}
+                      className={restInputClass('descripcion', 'resize-none')}
+                    />
+                    {restFormErrors.descripcion && <p className="text-[11px] text-red-400 mt-1">{restFormErrors.descripcion}</p>}
                   </div>
 
                   {/* Credenciales de Acceso para Compras en Patrocinadores */}
@@ -2224,54 +2771,94 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
                         <label className="block text-[11px] font-semibold text-stone-400 mb-1">Usuario de Acceso</label>
                         <input
                           type="text"
+                          maxLength={24}
+                          autoCapitalize="none"
                           value={newRest.usuarioAcceso}
-                          onChange={(e) => setNewRest({ ...newRest, usuarioAcceso: e.target.value })}
+                          onChange={(e) => updateNewRestField('usuarioAcceso', e.target.value)}
                           placeholder="Ej: asadortocuyano"
-                          className="w-full px-3 py-2 rounded-xl bg-black border border-stone-800 text-[#FFF9ED] text-xs outline-none focus:border-[#A40B03]"
+                          aria-invalid={Boolean(restFormErrors.usuarioAcceso)}
+                          className={`w-full px-3 py-2 rounded-xl bg-black border text-[#FFF9ED] text-xs outline-none font-mono transition-colors ${
+                            restFormErrors.usuarioAcceso ? 'border-red-500/70 focus:border-red-500' : 'border-stone-800 focus:border-[#A40B03]'
+                          }`}
                         />
+                        {restFormErrors.usuarioAcceso && <p className="text-[11px] text-red-400 mt-1">{restFormErrors.usuarioAcceso}</p>}
                       </div>
                       <div>
                         <label className="block text-[11px] font-semibold text-stone-400 mb-1">Contraseña de Acceso</label>
                         <input
                           type="text"
+                          maxLength={32}
+                          autoCapitalize="none"
                           value={newRest.claveAcceso}
-                          onChange={(e) => setNewRest({ ...newRest, claveAcceso: e.target.value })}
+                          onChange={(e) => updateNewRestField('claveAcceso', e.target.value)}
                           placeholder="Ej: burger2026"
-                          className="w-full px-3 py-2 rounded-xl bg-black border border-stone-800 text-[#FFF9ED] text-xs outline-none focus:border-[#A40B03]"
+                          aria-invalid={Boolean(restFormErrors.claveAcceso)}
+                          className={`w-full px-3 py-2 rounded-xl bg-black border text-[#FFF9ED] text-xs outline-none font-mono transition-colors ${
+                            restFormErrors.claveAcceso ? 'border-red-500/70 focus:border-red-500' : 'border-stone-800 focus:border-[#A40B03]'
+                          }`}
                         />
+                        {restFormErrors.claveAcceso && <p className="text-[11px] text-red-400 mt-1">{restFormErrors.claveAcceso}</p>}
                       </div>
                     </div>
                   </div>
 
                   {/* File Uploads for Restaurant */}
-                  <div className="p-4 rounded-xl border border-stone-800 bg-black flex flex-col gap-2">
+                  <div className={`p-4 rounded-xl border bg-black flex flex-col gap-2 ${
+                    restFormErrors.fotoFile ? 'border-red-500/70' : 'border-stone-800'
+                  }`}>
                     <label className="block text-xs font-semibold text-stone-400">
                       <UploadCloud className="w-4 h-4 inline mr-1 text-[#A40B03]" /> Foto de la Creación (Buena Calidad)
                     </label>
-                    <input 
-                      type="file" 
-                      accept="image/*"
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
                       required
-                      onChange={(e) => setFotoFile(e.target.files ? e.target.files[0] : null)}
+                      onChange={(e) => {
+                        setFotoFile(e.target.files ? e.target.files[0] : null);
+                        clearRestFileError('fotoFile');
+                      }}
                       className="text-xs text-stone-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-[#A40B03]/20 file:text-[#FFF9ED] hover:file:bg-[#A40B03]/30"
                     />
+                    <span className="text-[10px] text-stone-500">JPG, PNG o WebP · Máximo 5 MB</span>
+                    {restFormErrors.fotoFile && <p className="text-[11px] text-red-400">{restFormErrors.fotoFile}</p>}
                   </div>
-                  <div className="p-4 rounded-xl border border-stone-800 bg-black flex flex-col gap-2">
+                  <div className={`p-4 rounded-xl border bg-black flex flex-col gap-2 ${
+                    restFormErrors.logoFile ? 'border-red-500/70' : 'border-stone-800'
+                  }`}>
                     <label className="block text-xs font-semibold text-stone-400">
                       <UploadCloud className="w-4 h-4 inline mr-1 text-[#A40B03]" /> Logo del Restaurante
                     </label>
-                    <input 
-                      type="file" 
-                      accept="image/*"
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
                       required
-                      onChange={(e) => setLogoFile(e.target.files ? e.target.files[0] : null)}
+                      onChange={(e) => {
+                        setLogoFile(e.target.files ? e.target.files[0] : null);
+                        clearRestFileError('logoFile');
+                      }}
                       className="text-xs text-stone-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-[#A40B03]/20 file:text-[#FFF9ED] hover:file:bg-[#A40B03]/30"
                     />
+                    <span className="text-[10px] text-stone-500">JPG, PNG o WebP · Máximo 5 MB</span>
+                    {restFormErrors.logoFile && <p className="text-[11px] text-red-400">{restFormErrors.logoFile}</p>}
                   </div>
                 </div>
 
-                <button type="submit" disabled={isUploadingRest} className="px-6 py-3 rounded-xl bg-[#A40B03] text-[#FFF9ED] font-bold text-xs hover:bg-[#BF0E05] transition-all flex items-center gap-2 disabled:opacity-50 border border-[#A40B03]/50 shadow-md">
-                  {isUploadingRest ? 'Subiendo imágenes y guardando...' : 'Inscribir Restaurante y Subir Fotos'}
+                <button
+                  type="submit"
+                  disabled={isUploadingRest}
+                  className="px-6 py-3 rounded-xl bg-[#A40B03] text-[#FFF9ED] font-bold text-xs hover:bg-[#BF0E05] transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed border border-[#A40B03]/50 shadow-md cursor-pointer"
+                >
+                  {isUploadingRest ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Guardando restaurante...</span>
+                    </>
+                  ) : (
+                    <>
+                      <PlusCircle className="w-4 h-4" />
+                      <span>Inscribir Restaurante y Subir Fotos</span>
+                    </>
+                  )}
                 </button>
               </form>
             </div>
