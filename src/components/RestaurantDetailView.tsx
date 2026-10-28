@@ -1,5 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { motion } from 'motion/react';
+import gsap from 'gsap';
+import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import { Restaurante, CriteriosVoto, CodigoVoto, UsuarioAuth } from '../types';
 import { 
   ArrowLeft, 
@@ -47,6 +49,8 @@ import {
   logoutFirebase 
 } from '../services/firebaseService';
 
+gsap.registerPlugin(ScrollTrigger);
+
 interface RestaurantDetailViewProps {
   restaurante: Restaurante;
   onBack: () => void;
@@ -64,6 +68,8 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
   onLogin,
   onLogout,
 }) => {
+  const detailRef = useRef<HTMLDivElement>(null);
+
   // Form State
   const [codigoInput, setCodigoInput] = useState('');
   const [ratingGeneral, setRatingGeneral] = useState<number>(5);
@@ -129,10 +135,42 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
 
   // Direct video file (MP4, WebM, etc.)
   const isDirectVideo = tieneVideo && !isInstagramVideo && !isYoutubeVideo;
+  const isYoutubeShort = /youtube\.com\/shorts\//i.test(rawVideoUrl);
+  const isVerticalVideo = isInstagramVideo || isDirectVideo || isYoutubeShort;
 
   useEffect(() => {
     // Window scroll to top on mount
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [restaurante.id]);
+
+  useLayoutEffect(() => {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const context = gsap.context(() => {
+      gsap.from('[data-detail-hero]', {
+        opacity: 0,
+        y: 24,
+        duration: 0.8,
+        ease: 'power3.out',
+      });
+      gsap.from('[data-detail-hero-item]', {
+        opacity: 0,
+        y: 18,
+        duration: 0.65,
+        stagger: 0.07,
+        delay: 0.15,
+        ease: 'power3.out',
+      });
+      gsap.utils.toArray<HTMLElement>('[data-detail-reveal]').forEach(item => {
+        gsap.from(item, {
+          opacity: 0,
+          y: 32,
+          duration: 0.75,
+          ease: 'power3.out',
+          scrollTrigger: { trigger: item, start: 'top 90%', once: true },
+        });
+      });
+    }, detailRef);
+    return () => context.revert();
   }, [restaurante.id]);
 
   // Autoplay video loop muted without user effort when using direct video
@@ -332,7 +370,7 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
   };
 
   return (
-    <div className="min-h-screen bg-black/60 backdrop-blur-[2px] text-[#FFF9ED] py-6 sm:py-10">
+    <div ref={detailRef} className="min-h-screen bg-black/60 backdrop-blur-[2px] text-[#FFF9ED] py-6 sm:py-10">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8">
         
         {/* Top Breadcrumb & Back Bar */}
@@ -372,11 +410,11 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
         )}
 
         {/* RESTAURANT & DISH HERO BANNER - REDISEÑO DINÁMICO & ATRACTIVO */}
-        <div className="rounded-3xl bg-gradient-to-br from-[#161616] via-[#0F0F0F] to-[#0A0A0A] border border-stone-800 hover:border-[#A40B03]/50 transition-all duration-500 overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.85)] group">
+        <div data-detail-hero className="rounded-3xl bg-gradient-to-br from-[#1A1210] via-[#0F0F0F] to-[#0A0A0A] border border-[#D6A44B]/20 hover:border-[#D6A44B]/40 transition-colors duration-500 overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.85)] group">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-0">
             
             {/* Dish High-Res Visual */}
-            <div className="lg:col-span-6 relative aspect-[16/11] lg:aspect-auto overflow-hidden bg-black flex items-center justify-center">
+            <div data-detail-hero-item className="lg:col-span-6 relative aspect-[16/11] lg:aspect-auto overflow-hidden bg-black flex items-center justify-center">
               <img
                 src={restaurante.fotoUrl}
                 alt={restaurante.nombreHamburguesa}
@@ -403,7 +441,7 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
               
               <div className="space-y-4">
                 {/* Restaurant Signature */}
-                <div className="flex items-center gap-3.5 pb-2 border-b border-stone-800/80">
+                <div data-detail-hero-item className="flex items-center gap-3.5 pb-2 border-b border-stone-800/80">
                   <div className="relative">
                     <img
                       src={restaurante.logoUrl}
@@ -428,8 +466,8 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
                 </div>
 
                 {/* Dish Title & Slogan */}
-                <div>
-                  <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black text-[#FFF9ED] font-['Cabinet_Grotesk',sans-serif] tracking-tight leading-tight">
+                <div data-detail-hero-item>
+                  <h1 className="font-display text-4xl sm:text-5xl lg:text-6xl font-normal text-[#FFF9ED] tracking-wide leading-[1.02] [text-shadow:0_4px_24px_rgba(0,0,0,0.85)]">
                     {restaurante.nombreHamburguesa}
                   </h1>
                   <div className="mt-2.5 p-3 rounded-2xl bg-black/50 border border-stone-800/90 flex items-start gap-2.5">
@@ -441,12 +479,12 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
                 </div>
 
                 {/* Detailed Story & Technique */}
-                <p className="text-stone-300 text-xs sm:text-sm leading-relaxed">
+                <p data-detail-hero-item className="text-[#EADBCE] text-sm sm:text-base leading-relaxed">
                   {restaurante.descripcion}
                 </p>
 
                 {/* Ingredients Pills - Dynamic Chips */}
-                <div>
+                <div data-detail-hero-item>
                   <div className="text-xs font-bold text-stone-400 uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
                     <UtensilsCrossed className="w-3.5 h-3.5 text-[#A40B03]" />
                     <span>Ingredientes & Toppings de Autor:</span>
@@ -498,8 +536,8 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
           
           {/* COLUMN 1: DEDICATED IN-PAGE VOTING FORM (NO MODAL) */}
-          <div className="lg:col-span-7">
-            <div className="p-6 sm:p-8 rounded-3xl bg-[#0F0F0F] border border-[#A40B03]/30 shadow-2xl relative overflow-hidden space-y-6">
+          <div data-detail-reveal className="lg:col-span-7">
+            <div className="p-5 sm:p-8 rounded-3xl bg-[#0F0F0F] border border-[#A40B03]/30 shadow-2xl relative overflow-hidden space-y-6">
               
               {/* Header */}
               <div className="flex items-start justify-between gap-4 pb-4 border-b border-stone-800">
@@ -508,7 +546,7 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
                     <ShieldCheck className="w-3.5 h-3.5 text-[#A40B03]" />
                     <span>Votación Oficial Segura • 1 Voto Por Restaurante</span>
                   </div>
-                  <h3 className="text-xl sm:text-2xl font-black text-[#FFF9ED] font-['Cabinet_Grotesk',sans-serif]">
+                  <h3 className="font-display text-3xl sm:text-4xl font-normal tracking-wide text-[#FFF9ED] leading-tight">
                     Califica esta Creación Gastronómica
                   </h3>
                   <p className="text-xs text-stone-400 mt-1">
@@ -582,7 +620,7 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
                       <ShieldX className="w-3.5 h-3.5 text-red-400" />
                       Participación Suspendida
                     </div>
-                    <h4 className="text-xl sm:text-2xl font-black text-white font-['Cabinet_Grotesk',sans-serif]">
+                    <h4 className="font-display text-3xl font-normal tracking-wide text-white">
                       Restaurante Descalificado
                     </h4>
                     <p className="text-xs sm:text-sm text-red-300/80 mt-2 max-w-md mx-auto">
@@ -620,7 +658,7 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
                   </div>
 
                   <div>
-                    <h4 className="text-xl font-bold text-[#FFF9ED]">
+                    <h4 className="font-display text-3xl font-normal tracking-wide text-[#FFF9ED]">
                       ¡Tu Voto ha Sido Registrado!
                     </h4>
                     <p className="text-xs text-stone-400 mt-1">
@@ -658,7 +696,7 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
                       <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
                       <span>Voto ya emitido para este restaurante</span>
                     </div>
-                    <h4 className="text-xl sm:text-2xl font-black text-[#FFF9ED] font-['Cabinet_Grotesk',sans-serif]">
+                    <h4 className="font-display text-3xl font-normal tracking-wide text-[#FFF9ED]">
                       ¡Tu Voto ya fue Registrado!
                     </h4>
                     <p className="text-xs sm:text-sm text-stone-300 max-w-md mx-auto leading-relaxed">
@@ -1263,15 +1301,15 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
           </div>
 
           {/* COLUMN 2: CÓMO SE PREPARA LA HAMBURGUESA (VIDEO / REEL SHOWCASE) */}
-          <div className="lg:col-span-5 space-y-6">
+          <div data-detail-reveal className="lg:col-span-5 space-y-6">
             
-            <div className="p-6 sm:p-7 rounded-3xl bg-[#0F0F0F] border border-stone-800 shadow-xl space-y-5">
+            <div className="p-4 sm:p-7 rounded-3xl bg-gradient-to-b from-[#181210] to-[#0C0C0C] border border-[#D6A44B]/20 shadow-[0_18px_45px_rgba(0,0,0,0.6)] space-y-5">
               <div className="flex items-center gap-2.5 pb-3 border-b border-stone-800">
                 <div className="p-2 rounded-xl bg-[#A40B03]/15 text-[#A40B03] border border-[#A40B03]/30">
                   <Film className="w-5 h-5" />
                 </div>
                 <div>
-                  <h4 className="font-extrabold text-[#FFF9ED] text-base flex items-center gap-2">
+                  <h4 className="font-display font-normal text-[#FFF9ED] text-2xl tracking-wide flex items-center gap-2">
                     <span>Cómo se Prepara</span>
                     <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-[#A40B03]/20 text-[#FFF9ED] border border-[#A40B03]/40">
                       En Vivo
@@ -1285,13 +1323,35 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
 
               {/* Video Player or Interactive Instagram / YouTube Frame */}
               <div className="space-y-4">
+                <div className={isVerticalVideo
+                  ? 'mx-auto w-full max-w-[340px] rounded-[2rem] border border-white/15 bg-[#090909] p-2.5 shadow-[0_24px_60px_rgba(0,0,0,0.75)] space-y-3'
+                  : 'space-y-4'
+                }>
+                  {isVerticalVideo && (
+                    <div className="flex items-center gap-2.5 px-1.5 py-1">
+                      <div className="rounded-full bg-gradient-to-tr from-[#f09433] via-[#dc2743] to-[#bc1888] p-[2px]">
+                        <img
+                          src={restaurante.logoUrl}
+                          alt=""
+                          className="h-8 w-8 rounded-full border-2 border-black object-cover"
+                          referrerPolicy="no-referrer"
+                        />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-xs font-bold text-[#FFF9ED]">{restaurante.instagram}</p>
+                        <p className="text-[10px] text-stone-400">{restaurante.nombre} • Reel</p>
+                      </div>
+                      <Instagram className="h-4 w-4 text-[#FFF9ED]" />
+                    </div>
+                  )}
                 {isInstagramVideo && instagramEmbedUrl ? (
                   /* CASO 1: REEL OFICIAL DE INSTAGRAM EMBED */
                   <div className="space-y-3">
-                    <div className="relative rounded-2xl overflow-hidden bg-black border border-[#A40B03]/40 shadow-2xl w-full min-h-[480px] sm:min-h-[520px] flex items-center justify-center">
+                    <div className="relative aspect-[9/16] w-full overflow-hidden rounded-[1.35rem] border border-white/10 bg-black shadow-2xl">
                       <iframe
                         src={instagramEmbedUrl}
-                        className="w-full min-h-[480px] sm:min-h-[520px] border-0 rounded-2xl bg-black"
+                        className="absolute inset-0 h-full w-full border-0 bg-black"
+                        loading="lazy"
                         scrolling="no"
                         allowFullScreen
                         allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"
@@ -1314,10 +1374,11 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
                 ) : isYoutubeVideo && youtubeEmbedUrl ? (
                   /* CASO 2: YOUTUBE / YOUTUBE SHORTS (AUTOPLAY EN BUCLE) */
                   <div className="space-y-3">
-                    <div className="relative rounded-2xl overflow-hidden bg-black border border-[#A40B03]/40 shadow-2xl aspect-video w-full">
+                    <div className={`relative overflow-hidden rounded-[1.35rem] bg-black border border-white/10 shadow-2xl w-full ${isYoutubeShort ? 'aspect-[9/16]' : 'aspect-video'}`}>
                       <iframe
                         src={youtubeEmbedUrl}
-                        className="w-full h-full border-0 rounded-2xl"
+                        className="absolute inset-0 h-full w-full border-0"
+                        loading="lazy"
                         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                         allowFullScreen
                         title={`Video de preparación de ${restaurante.nombre}`}
@@ -1338,7 +1399,7 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
                 ) : isDirectVideo ? (
                   /* CASO 3: VIDEO DIRECTO MP4 / WEBM (AUTOPLAY EN BUCLE SIN AUDIO) */
                   <div className="space-y-3">
-                    <div className="relative rounded-2xl overflow-hidden bg-black border border-[#A40B03]/40 shadow-2xl aspect-video group">
+                    <div className="relative aspect-[9/16] w-full overflow-hidden rounded-[1.35rem] border border-white/10 bg-black shadow-2xl group">
                       <video
                         ref={videoRef}
                         src={rawVideoUrl}
@@ -1356,7 +1417,7 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
                       {/* Autoplay & Audio indicator overlay */}
                       <div className="absolute top-3 left-3 z-10 px-2.5 py-1 rounded-full bg-black/85 backdrop-blur-md border border-[#A40B03]/50 text-[10px] font-bold text-[#FFF9ED] flex items-center gap-1.5 shadow-md pointer-events-none">
                         <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-                        <span>{isMuted ? 'Sin Audio (Silenciado)' : 'Sonido Activado'}</span>
+                        <span>{isMuted ? 'Sin audio' : 'Con audio'}</span>
                       </div>
 
                       {/* Floating Quick Toggle Button */}
@@ -1370,7 +1431,9 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
                             setIsMuted(nextState);
                           }
                         }}
-                        className={`absolute top-3 right-3 z-10 px-3 py-1.5 rounded-xl backdrop-blur-md text-xs font-bold flex items-center gap-1.5 transition-all shadow-lg cursor-pointer border ${
+                        aria-label={isMuted ? 'Activar sonido' : 'Silenciar video'}
+                        title={isMuted ? 'Activar sonido' : 'Silenciar video'}
+                        className={`absolute top-3 right-3 z-10 p-2.5 rounded-full backdrop-blur-md text-xs font-bold flex items-center justify-center transition-all shadow-lg cursor-pointer border ${
                           isMuted 
                             ? 'bg-black/85 text-[#FFF9ED] hover:bg-black border-stone-700 hover:border-[#A40B03]' 
                             : 'bg-emerald-950/90 text-emerald-300 border-emerald-500/50'
@@ -1378,13 +1441,11 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
                       >
                         {isMuted ? (
                           <>
-                            <VolumeX className="w-4 h-4 text-[#A40B03]" />
-                            <span>Activar Sonido</span>
+                            <VolumeX className="w-4 h-4 text-[#FFF9ED]" />
                           </>
                         ) : (
                           <>
                             <Volume2 className="w-4 h-4 text-emerald-400" />
-                            <span>Silenciar</span>
                           </>
                         )}
                       </button>
@@ -1395,7 +1456,7 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
                       <div className="flex items-center gap-2 text-xs">
                         <span className="w-2 h-2 rounded-full bg-[#A40B03]" />
                         <span className="text-stone-300 font-medium text-xs">
-                          {isMuted ? 'El video se reproduce sin audio por defecto' : 'Audio en reproducción'}
+                          {isMuted ? 'Audio desactivado' : 'Audio activado'}
                         </span>
                       </div>
 
@@ -1418,12 +1479,12 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
                         {isMuted ? (
                           <>
                             <Volume2 className="w-3.5 h-3.5 text-[#FFF9ED]" />
-                            <span>Activar Volumen</span>
+                            <span>Activar</span>
                           </>
                         ) : (
                           <>
                             <VolumeX className="w-3.5 h-3.5 text-stone-400" />
-                            <span>Silenciar Video</span>
+                            <span>Silenciar</span>
                           </>
                         )}
                       </button>
@@ -1437,7 +1498,7 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
                       className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-gradient-to-r from-[#A40B03] to-[#800701] hover:from-[#BF0E05] hover:to-[#A40B03] text-[#FFF9ED] font-extrabold text-xs transition-all shadow-md shadow-[#A40B03]/20 border border-[#FFF9ED]/20"
                     >
                       <Instagram className="w-4 h-4 text-[#FFF9ED]" />
-                      <span>Ver más y seguir a {restaurante.nombre} en Instagram</span>
+                      <span>Seguir a {restaurante.instagram} en Instagram</span>
                       <ExternalLink className="w-3.5 h-3.5 text-[#FFF9ED]/80 ml-1" />
                     </a>
                   </div>
@@ -1502,6 +1563,7 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
                     </div>
                   </div>
                 )}
+                </div>
               </div>
 
             </div>

@@ -1,6 +1,15 @@
 @import "tailwindcss";
 
+@font-face {
+  font-family: 'Burger Nation';
+  src: url('./img/BurgerNation.otf') format('opentype');
+  font-display: swap;
+  font-style: normal;
+  font-weight: 400 900;
+}
+
 @theme {
+  --font-display: 'Burger Nation', 'Arial Black', sans-serif;
   --color-brand-red: #A40B03;
   --color-brand-red-dark: #7A0802;
   --color-brand-red-hover: #BF0E05;

@@ -1,7 +1,10 @@
-import React from 'react';
-import { motion } from 'motion/react';
+import React, { useLayoutEffect, useRef } from 'react';
+import gsap from 'gsap';
+import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import { Restaurante } from '../types';
 import { Star, MapPin, QrCode, ArrowUpRight, Flame, Instagram, Sparkles, ShieldAlert } from 'lucide-react';
+
+gsap.registerPlugin(ScrollTrigger);
 
 interface BurgersGalleryProps {
   restaurantes: Restaurante[];
@@ -12,18 +15,38 @@ export const BurgersGallery: React.FC<BurgersGalleryProps> = ({
   restaurantes,
   onSelectRestaurant,
 }) => {
+  const sectionRef = useRef<HTMLElement>(null);
+
+  useLayoutEffect(() => {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const context = gsap.context(() => {
+      gsap.utils.toArray<HTMLElement>('[data-burger-card]').forEach((card, index) => {
+        gsap.from(card, {
+          opacity: 0,
+          y: 42,
+          scale: 0.97,
+          duration: 0.8,
+          delay: (index % 2) * 0.08,
+          ease: 'power3.out',
+          scrollTrigger: { trigger: card, start: 'top 90%', once: true },
+        });
+      });
+    }, sectionRef);
+    return () => context.revert();
+  }, [restaurantes]);
+
   return (
-    <section id="hamburguesas" className="py-16 bg-black/60 backdrop-blur-[2px] border-t border-stone-900/80 scroll-mt-20">
+    <section ref={sectionRef} id="hamburguesas" className="relative py-12 sm:py-16 bg-black/60 backdrop-blur-[2px] border-t border-stone-900/80 scroll-mt-20 overflow-hidden">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         
         {/* Section Header */}
-        <div className="flex flex-col md:flex-row md:items-end justify-between mb-12 gap-4">
+        <div className="flex flex-col md:flex-row md:items-end justify-between mb-8 sm:mb-12 gap-5">
           <div>
             <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#A40B03]/15 border border-[#A40B03]/40 text-[#FFF9ED] text-xs font-bold uppercase tracking-wider mb-3">
               <Flame className="w-3.5 h-3.5 text-[#A40B03]" />
               <span>Galería Oficial • Food Fest 2026</span>
             </div>
-            <h2 className="text-3xl sm:text-4xl font-extrabold text-[#FFF9ED] font-['Cabinet_Grotesk',sans-serif] tracking-tight">
+            <h2 className="font-display text-4xl sm:text-5xl font-normal text-[#FFF9ED] tracking-wide leading-none [text-shadow:0_4px_24px_rgba(0,0,0,0.85)]">
               Creaciones Participantes
             </h2>
             <p className="text-stone-400 text-sm sm:text-base mt-2 max-w-2xl">
@@ -38,23 +61,22 @@ export const BurgersGallery: React.FC<BurgersGalleryProps> = ({
         </div>
 
         {/* Gallery Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-8">
-          {restaurantes.map((rest, index) => (
-            <motion.div
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-8 [perspective:1200px]">
+          {restaurantes.map((rest) => (
+            <article
               key={rest.id}
-              initial={{ opacity: 0, y: 30 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, margin: '-50px' }}
-              transition={{ duration: 0.5, delay: index * 0.1 }}
-              className="group rounded-3xl bg-[#0F0F0F] border border-stone-800/80 hover:border-[#A40B03]/60 transition-all duration-300 overflow-hidden flex flex-col justify-between shadow-xl shadow-black hover:shadow-2xl hover:shadow-[#A40B03]/20"
+              data-burger-card
+              className="group relative rounded-[1.75rem] bg-gradient-to-b from-[#1A1210] via-[#0F0F0F] to-[#090909] border border-[#D6A44B]/20 hover:border-[#D6A44B]/45 transition-[border-color,box-shadow,transform] duration-500 overflow-hidden flex flex-col justify-between shadow-[0_20px_45px_rgba(0,0,0,0.6)] hover:shadow-[0_26px_65px_rgba(0,0,0,0.8),0_0_35px_rgba(164,11,3,0.16)] hover:-translate-y-1 will-change-transform"
             >
               
               {/* Image & Badges */}
-              <div className="relative aspect-[16/10] overflow-hidden bg-black">
+              <div className="relative aspect-[4/3] sm:aspect-[16/10] overflow-hidden bg-black">
                 <img
                   src={rest.fotoUrl}
                   alt={rest.nombreHamburguesa}
-                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700 ease-out"
+                  loading="lazy"
+                  decoding="async"
                   referrerPolicy="no-referrer"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-[#0F0F0F] via-black/30 to-transparent" />
@@ -108,9 +130,9 @@ export const BurgersGallery: React.FC<BurgersGalleryProps> = ({
               </div>
 
               {/* Content Details */}
-              <div className="p-6 sm:p-7 flex-1 flex flex-col justify-between space-y-5">
+              <div className="p-5 sm:p-7 flex-1 flex flex-col justify-between space-y-5">
                 <div>
-                  <h3 className="text-2xl font-black text-[#FFF9ED] font-['Cabinet_Grotesk',sans-serif] group-hover:text-[#A40B03] transition-colors">
+                  <h3 className="font-display text-3xl sm:text-4xl font-normal leading-[1.05] tracking-wide text-[#FFF9ED] group-hover:text-[#F0C778] transition-colors [text-shadow:0_3px_18px_rgba(0,0,0,0.8)]">
                     {rest.nombreHamburguesa}
                   </h3>
                   <p className="text-[#A40B03] text-xs font-bold mt-1 tracking-wide">
@@ -168,7 +190,7 @@ export const BurgersGallery: React.FC<BurgersGalleryProps> = ({
 
               </div>
 
-            </motion.div>
+            </article>
           ))}
         </div>
 

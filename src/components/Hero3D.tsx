@@ -1,20 +1,89 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 import { motion } from 'motion/react';
-import { ShieldAlert, Award, Sparkles, QrCode, ArrowRight, Star, Flame, MapPin } from 'lucide-react';
-import logoBlanco from '../img/logo blanco.svg';
-import logoRed from '../img/logo.svg';
+import gsap from 'gsap';
+import { ShieldAlert, Award, Sparkles, QrCode, ArrowRight, Flame, MapPin } from 'lucide-react';
+import placaPremio from '../img/placa-premio-display.webp';
 
 interface Hero3DProps {
   onExploreBurgers: () => void;
-  totalVotos: number;
 }
 
-export const Hero3D: React.FC<Hero3DProps> = ({
-  onExploreBurgers,
-  totalVotos,
-}) => {
-  const [rotateX, setRotateX] = useState(0);
-  const [rotateY, setRotateY] = useState(0);
+export const Hero3D: React.FC<Hero3DProps> = ({ onExploreBurgers }) => {
+  const cardRef = useRef<HTMLDivElement>(null);
+  const orientationBaseRef = useRef<{ alpha: number | null; beta: number; gamma: number } | null>(null);
+
+  useLayoutEffect(() => {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const tween = gsap.fromTo(cardRef.current,
+      { opacity: 0, y: 28 },
+      { opacity: 1, y: 0, duration: 1, ease: 'power3.out', delay: 0.2 },
+    );
+    return () => { tween.kill(); };
+  }, []);
+
+  const handleDeviceOrientation = useCallback((event: DeviceOrientationEvent) => {
+    if (event.beta === null || event.gamma === null || !cardRef.current) return;
+    if (!orientationBaseRef.current) {
+      orientationBaseRef.current = { alpha: event.alpha, beta: event.beta, gamma: event.gamma };
+    }
+
+    const base = orientationBaseRef.current;
+    const clamp = (value: number) => Math.max(-12, Math.min(12, value));
+    const alphaDelta = event.alpha !== null && base.alpha !== null
+      ? ((event.alpha - base.alpha + 540) % 360) - 180
+      : 0;
+    const rotateX = clamp(-(event.beta - base.beta) / 1.5);
+    const rotateY = clamp(((event.gamma - base.gamma) + alphaDelta * 0.35) / 1.5);
+
+    gsap.to(cardRef.current, {
+      rotateX,
+      rotateY,
+      transformPerspective: 1000,
+      duration: 0.4,
+      ease: 'power2.out',
+      overwrite: 'auto',
+    });
+  }, []);
+
+  const startOrientationListening = useCallback(() => {
+    orientationBaseRef.current = null;
+    window.removeEventListener('deviceorientation', handleDeviceOrientation);
+    window.addEventListener('deviceorientation', handleDeviceOrientation, { passive: true });
+  }, [handleDeviceOrientation]);
+
+  useEffect(() => {
+    if (!('DeviceOrientationEvent' in window) || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+    const orientationEvent = window.DeviceOrientationEvent as typeof DeviceOrientationEvent & {
+      requestPermission?: () => Promise<'granted' | 'denied'>;
+    };
+    let permissionHandler: (() => void) | undefined;
+
+    if (typeof orientationEvent.requestPermission === 'function') {
+      // iOS exige un gesto del usuario: usamos el primer toque, sin botones adicionales.
+      permissionHandler = () => {
+        window.removeEventListener('pointerdown', permissionHandler!);
+        window.removeEventListener('touchend', permissionHandler!);
+        void orientationEvent.requestPermission!()
+          .then(permission => {
+            if (permission === 'granted') startOrientationListening();
+          })
+          .catch(() => undefined);
+      };
+      window.addEventListener('pointerdown', permissionHandler, { passive: true });
+      window.addEventListener('touchend', permissionHandler, { passive: true });
+    } else {
+      startOrientationListening();
+    }
+
+    return () => {
+      window.removeEventListener('deviceorientation', handleDeviceOrientation);
+      if (permissionHandler) {
+        window.removeEventListener('pointerdown', permissionHandler);
+        window.removeEventListener('touchend', permissionHandler);
+      }
+    };
+  }, [handleDeviceOrientation, startOrientationListening]);
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     const card = e.currentTarget;
@@ -27,23 +96,29 @@ export const Hero3D: React.FC<Hero3DProps> = ({
     const rotX = ((y - centerY) / centerY) * -12;
     const rotY = ((x - centerX) / centerX) * 12;
 
-    setRotateX(rotX);
-    setRotateY(rotY);
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    gsap.to(cardRef.current, {
+      rotateX: rotX,
+      rotateY: rotY,
+      transformPerspective: 1000,
+      duration: 0.65,
+      ease: 'power3.out',
+      overwrite: 'auto',
+    });
   };
 
   const handleMouseLeave = () => {
-    setRotateX(0);
-    setRotateY(0);
+    gsap.to(cardRef.current, { rotateX: 0, rotateY: 0, duration: 0.7, ease: 'power3.out', overwrite: 'auto' });
   };
 
   return (
-    <section className="relative overflow-hidden pt-8 pb-16 lg:pt-14 lg:pb-24">
+    <section className="relative overflow-hidden pt-5 pb-12 sm:pt-8 sm:pb-16 lg:pt-14 lg:pb-24">
       {/* Ambient background glow & radial grid */}
       <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[650px] h-[650px] bg-gradient-to-tr from-[#A40B03]/20 via-[#A40B03]/10 to-transparent rounded-full blur-3xl pointer-events-none" />
       <div className="absolute top-10 right-10 w-80 h-80 bg-[#A40B03]/10 rounded-full blur-3xl pointer-events-none" />
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-9 sm:gap-12 items-center">
           
           {/* Left Column: Copy & Value Proposition */}
           <div className="lg:col-span-7 space-y-6 text-center lg:text-left">
@@ -65,10 +140,10 @@ export const Hero3D: React.FC<Hero3DProps> = ({
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.1 }}
-              className="text-4xl sm:text-5xl lg:text-6xl font-black tracking-tight text-[#FFF9ED] font-['Cabinet_Grotesk',sans-serif] leading-[1.08]"
+              className="font-display text-[2.65rem] sm:text-6xl lg:text-[3.6rem] xl:text-7xl font-normal tracking-wide lg:tracking-normal text-[#FFF9ED] leading-[0.98] lg:leading-[1.04] lg:max-w-3xl [text-shadow:0_4px_30px_rgba(0,0,0,0.9)]"
             >
-              ¿Cuál es la Mejor Propuesta del <br />
-              <span className="bg-gradient-to-r from-[#A40B03] via-red-500 to-[#FFF9ED] bg-clip-text text-transparent">
+              ¿Cuál es la Mejor Propuesta del <br className="lg:hidden" />
+              <span className="text-[#F3D49A] [text-shadow:0_3px_20px_rgba(0,0,0,0.95)]">
                 Food Fest 2026?
               </span>
             </motion.h1>
@@ -97,7 +172,7 @@ export const Hero3D: React.FC<Hero3DProps> = ({
                   <QrCode className="w-4 h-4 text-[#A40B03]" />
                 </div>
                 <div>
-                  <h4 className="text-xs font-bold text-[#FFF9ED]">Sin Registro</h4>
+                  <h4 className="text-xs font-bold text-[#FFF9ED]">Con Registro</h4>
                   <p className="text-[11px] text-stone-400">Vota directo con el código</p>
                 </div>
               </div>
@@ -147,33 +222,25 @@ export const Hero3D: React.FC<Hero3DProps> = ({
             </motion.div>
 
             {/* Micro proof line */}
-            <div className="flex items-center justify-center lg:justify-start gap-4 text-xs text-stone-400 pt-1">
-              <span className="flex items-center gap-1.5 text-stone-300">
-                <Flame className="w-4 h-4 text-[#A40B03]" />
-                <strong className="text-[#FFF9ED] font-bold">{totalVotos} votos</strong> registrados en vivo
-              </span>
-              <span>•</span>
-              <span className="flex items-center gap-1">
-                <MapPin className="w-3.5 h-3.5 text-[#A40B03]" /> El Tocuyo, Morán 2026
+            <div className="flex items-center justify-center lg:justify-start text-xs text-stone-400 pt-1">
+              <span className="flex items-center gap-1.5">
+                <MapPin className="w-3.5 h-3.5 text-[#D96B60]" /> El Tocuyo, Morán 2026
               </span>
             </div>
 
           </div>
 
           {/* Right Column: 3D Interactive Presentation Stage */}
-          <div className="lg:col-span-5 flex justify-center">
+          <div className="lg:col-span-5 flex flex-col items-center justify-center">
             <div 
               className="w-full max-w-md perspective-[1000px]"
               onMouseMove={handleMouseMove}
               onMouseLeave={handleMouseLeave}
             >
               <motion.div
-                style={{
-                  transform: `rotateX(${rotateX}deg) rotateY(${rotateY}deg)`,
-                  transformStyle: 'preserve-3d',
-                }}
-                transition={{ type: 'spring', stiffness: 200, damping: 20 }}
-                className="relative rounded-3xl bg-gradient-to-b from-[#141414] via-[#0A0A0A] to-black p-6 sm:p-7 border border-[#A40B03]/40 shadow-2xl shadow-black backdrop-blur-xl"
+                ref={cardRef}
+                style={{ transformStyle: 'preserve-3d' }}
+                className="relative rounded-[2rem] bg-gradient-to-b from-[#1B1110] via-[#0A0A0A] to-black p-4 sm:p-7 border border-[#D6A44B]/35 shadow-[0_30px_80px_rgba(0,0,0,0.75),0_0_45px_rgba(164,11,3,0.12)] backdrop-blur-xl will-change-transform"
               >
                 
                 {/* Floating 3D Badge: Food Fest 2026 */}
@@ -188,13 +255,17 @@ export const Hero3D: React.FC<Hero3DProps> = ({
                 {/* Main Image Stage with Dynamic Lighting */}
                 <div 
                   style={{ transform: 'translateZ(30px)' }}
-                  className="relative rounded-2xl overflow-hidden aspect-[4/3] bg-black shadow-inner group border border-stone-800"
+                  className="relative rounded-[1.4rem] overflow-hidden aspect-[3/4] bg-[#100B09] shadow-[inset_0_0_40px_rgba(0,0,0,0.4)] group border border-[#D6A44B]/25"
                 >
                   <img
-                    src="https://images.unsplash.com/photo-1568901346375-23c9450c58cd?auto=format&fit=crop&w=800&q=80"
-                    alt="Gastronomía Food Fest 2026"
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                    referrerPolicy="no-referrer"
+                    src={placaPremio}
+                    alt="Placa oficial que recibirá el restaurante ganador del Food Fest El Tocuyo 2026"
+                    width="800"
+                    height="1067"
+                    loading="eager"
+                    fetchPriority="high"
+                    decoding="async"
+                    className="w-full h-full object-cover object-center group-hover:scale-[1.025] transition-transform duration-700 ease-out"
                   />
                   
                   {/* Visual Overlay gradient */}
@@ -203,10 +274,10 @@ export const Hero3D: React.FC<Hero3DProps> = ({
                   {/* Floating chip on image */}
                   <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between text-xs">
                     <span className="px-2.5 py-1 rounded-lg bg-black/85 backdrop-blur-md text-[#FFF9ED] font-semibold border border-[#A40B03]/30">
-                      Creaciones Gourmet en Competencia
+                      Premio oficial del festival
                     </span>
                     <span className="px-2.5 py-1 rounded-lg bg-[#A40B03] text-[#FFF9ED] font-extrabold flex items-center gap-1 shadow-sm">
-                      <Star className="w-3 h-3 fill-[#FFF9ED]" /> 5.0
+                      <Award className="w-3 h-3" /> 2026
                     </span>
                   </div>
                 </div>
@@ -218,11 +289,11 @@ export const Hero3D: React.FC<Hero3DProps> = ({
                 >
                   <div className="flex items-center justify-between">
                     <div>
-                      <h3 className="text-xl font-bold text-[#FFF9ED] font-['Cabinet_Grotesk',sans-serif]">
-                        La Batalla Gastronómica
+                      <h3 className="font-display text-3xl font-normal tracking-wide text-[#FFF9ED] [text-shadow:0_3px_18px_rgba(0,0,0,0.8)]">
+                        La placa ganadora
                       </h3>
-                      <p className="text-xs text-stone-400">
-                        Los Mejores Restaurantes compiten por la Placa
+                      <p className="text-xs sm:text-sm text-[#EADBCE] mt-1">
+                        El reconocimiento que se llevará la mejor hamburguesa de El Tocuyo.
                       </p>
                     </div>
                     <div className="px-3 py-1 rounded-xl bg-[#A40B03]/20 border border-[#A40B03]/50 flex items-center justify-center text-[#FFF9ED] font-black text-xs">

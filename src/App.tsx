@@ -316,7 +316,6 @@ export default function App() {
           <div id="hero">
             <Hero3D
               onExploreBurgers={() => handleNavigateSection('hamburguesas')}
-              totalVotos={stats.totalVotos}
             />
           </div>
 
