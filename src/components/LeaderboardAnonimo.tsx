@@ -249,7 +249,7 @@ export const LeaderboardAnonimo: React.FC<LeaderboardAnonimoProps> = ({
         <div className="mt-10 p-5 rounded-2xl bg-black border border-stone-800/90 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-stone-400 shadow-md">
           <div className="flex items-center gap-2.5">
             <ShieldCheck className="w-5 h-5 text-[#A40B03] shrink-0" />
-            <span>Actualizado automáticamente con cada transacción atómica de Firestore.</span>
+            <span>Actualizado automáticamente con cada transacción.</span>
           </div>
           <div className="flex items-center gap-1.5 text-stone-300 font-medium">
             <Flame className="w-4 h-4 text-[#A40B03]" />

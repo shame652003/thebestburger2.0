@@ -59,7 +59,7 @@ export const Footer: React.FC<FooterProps> = ({ onOpenAdmin }) => {
               title="Portal de Gestión para el Comité Organizador"
             >
               <Lock className="w-3 h-3 text-[#A40B03]" />
-              <span>Acceso Comité / Admin</span>
+              <span></span>
             </button>
           </div>
         </div>

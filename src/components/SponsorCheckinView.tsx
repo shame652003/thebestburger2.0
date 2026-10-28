@@ -439,7 +439,7 @@ export const SponsorCheckinView: React.FC<SponsorCheckinViewProps> = ({
                   </button>
 
                   <p className="text-[11px] text-stone-500 text-center leading-relaxed">
-                    🔒 Acceso exclusivo para representantes de los restaurantes participantes en The Best Burger 2026.
+                    🔒 Acceso exclusivo para representantes de los restaurantes participantes en Food Fest 2026.
                   </p>
                 </form>
               </div>

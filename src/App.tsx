@@ -244,6 +244,7 @@ export default function App() {
           <RestaurantDetailView
             restaurante={currentRestaurant}
             onBack={() => navigateToHome('hamburguesas')}
+            onGoHome={() => navigateToHome('hero')}
             onVoteCompleted={handleVoteSuccess}
             currentUser={currentUser}
             onLogin={loginWithGoogle}

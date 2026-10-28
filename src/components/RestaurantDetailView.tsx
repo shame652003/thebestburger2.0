@@ -2,6 +2,7 @@ import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { motion } from 'motion/react';
 import gsap from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
+import Swal from 'sweetalert2';
 import { Restaurante, CriteriosVoto, CodigoVoto, UsuarioAuth } from '../types';
 import { 
   ArrowLeft, 
@@ -28,6 +29,7 @@ import {
   Lock,
   Mail,
   Compass,
+  Home,
   RefreshCw,
   KeyRound,
   User,
@@ -46,6 +48,8 @@ import {
   loginWithEmailAndPasswordFirebase,
   registerWithEmailAndPasswordFirebase,
   resetPasswordFirebase,
+  resendVerificationEmailFirebase,
+  refreshEmailVerificationStatus,
   logoutFirebase 
 } from '../services/firebaseService';
 
@@ -54,6 +58,7 @@ gsap.registerPlugin(ScrollTrigger);
 interface RestaurantDetailViewProps {
   restaurante: Restaurante;
   onBack: () => void;
+  onGoHome?: () => void;
   onVoteCompleted: () => void;
   currentUser?: UsuarioAuth | null;
   onLogin?: () => Promise<any>;
@@ -63,22 +68,24 @@ interface RestaurantDetailViewProps {
 export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
   restaurante,
   onBack,
+  onGoHome,
   onVoteCompleted,
   currentUser,
   onLogin,
   onLogout,
 }) => {
   const detailRef = useRef<HTMLDivElement>(null);
+  const voteLockRef = useRef(false);
 
   // Form State
   const [codigoInput, setCodigoInput] = useState('');
-  const [ratingGeneral, setRatingGeneral] = useState<number>(5);
+  const [ratingGeneral, setRatingGeneral] = useState<number>(0);
   const [hoverRating, setHoverRating] = useState<number | null>(null);
   const [criterios, setCriterios] = useState<CriteriosVoto>({
-    saborCarne: 5,
-    calidadPan: 5,
-    salsasYToppings: 5,
-    creatividad: 5,
+    saborCarne: 0,
+    calidadPan: 0,
+    salsasYToppings: 0,
+    creatividad: 0,
   });
   const [comentario, setComentario] = useState('');
 
@@ -102,6 +109,12 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmittingAuth, setIsSubmittingAuth] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+
+  // Email Verification (security for email/password signups)
+  const [pendienteVerificacionEmail, setPendienteVerificacionEmail] = useState<string | null>(null);
+  const [verificacionPassword, setVerificacionPassword] = useState<string | null>(null);
+  const [verificandoYa, setVerificandoYa] = useState(false);
+  const [reenviandoVerificacion, setReenviandoVerificacion] = useState(false);
 
   // Password Reset State
   const [isResettingPassword, setIsResettingPassword] = useState(false);
@@ -142,6 +155,57 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
     // Window scroll to top on mount
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, [restaurante.id]);
+
+  // Reset form + locks when switching restaurants (no stale success state, no stuck lock)
+  useEffect(() => {
+    setVotoExitoso(false);
+    setVotoReciboId(null);
+    setErrorMessage(null);
+    setRatingGeneral(0);
+    setCriterios({ saborCarne: 0, calidadPan: 0, salsasYToppings: 0, creatividad: 0 });
+    setComentario('');
+    setCodigoInput('');
+    voteLockRef.current = false;
+  }, [restaurante.id]);
+
+  // GSAP Confetti burst on successful vote
+  const fireConfetti = () => {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const container = document.createElement('div');
+    container.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:10000;overflow:hidden;';
+    document.body.appendChild(container);
+
+    const palette = ['#A40B03', '#BF0E05', '#D6A44B', '#FFF9ED', '#ffffff', '#e3b341'];
+    const pieces: HTMLDivElement[] = [];
+    const total = 110;
+
+    for (let i = 0; i < total; i++) {
+      const p = document.createElement('div');
+      const size = gsap.utils.random(6, 13, 1);
+      const isRound = Math.random() > 0.6;
+      p.style.cssText = `position:absolute;width:${size}px;height:${isRound ? size : size * 1.7}px;background:${palette[i % palette.length]};border-radius:${isRound ? '50%' : '2px'};left:${gsap.utils.random(0, 100, 1)}%;top:-30px;opacity:1;will-change:transform;`;
+      container.appendChild(p);
+      pieces.push(p);
+    }
+
+    gsap.set(pieces, { rotation: () => gsap.utils.random(0, 360, 1) });
+    const tweens = gsap.utils.toArray<HTMLDivElement>(pieces).map((p) =>
+      gsap.to(p, {
+        y: window.innerHeight + 80,
+        x: `+=${gsap.utils.random(-180, 180, 1)}`,
+        rotation: `+=${gsap.utils.random(360, 1080, 1)}`,
+        duration: gsap.utils.random(2.2, 4, 0.1),
+        delay: gsap.utils.random(0, 0.5, 0.05),
+        ease: 'power1.in',
+        opacity: 0,
+      })
+    );
+
+    window.setTimeout(() => {
+      tweens.forEach((t) => t.kill());
+      container.remove();
+    }, 5200);
+  };
 
   useLayoutEffect(() => {
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
@@ -230,41 +294,89 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
     }
   };
 
+  // Formatea "Samuel perez" -> "Samuel Perez" (primera letra mayúscula por palabra)
+  const formatearNombre = (val: string): string => {
+    return val
+      .replace(/[^a-zA-ZáéíóúüñÁÉÍÓÚÜÑ\s'-]/g, '')
+      .replace(/\s+/g, ' ')
+      .trimStart()
+      .split(' ')
+      .map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1).toLowerCase() : w))
+      .join(' ');
+  };
+
+  const NOMBRE_REGEX = /^[A-ZÁÉÍÓÚÜÑ][a-záéíóúüñ]+(?:[-' ][A-ZÁÉÍÓÚÜÑ][a-záéíóúüñ]+)*$/;
+  const EMAIL_REGEX = /^[a-z0-9](?:[a-z0-9._%+-]*[a-z0-9])?@(?:gmail|hotmail)\.com$/;
+
   const handleEmailAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError(null);
     setErrorMessage(null);
 
     const cleanEmail = emailInput.trim().toLowerCase();
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-    if (!cleanEmail || !emailRegex.test(cleanEmail)) {
-      setAuthError('Por favor ingresa un correo electrónico válido (ej: nombre@dominio.com).');
+    if (!cleanEmail) {
+      setAuthError('Por favor ingresa tu correo electrónico.');
       return;
     }
 
-    if (!passwordInput || passwordInput.length < 6) {
-      setAuthError('La contraseña debe tener un mínimo de 6 caracteres.');
+    if (!EMAIL_REGEX.test(cleanEmail)) {
+      setAuthError('Para seguridad del festival solo se permiten correos reales que contengan "gmail" o "hotmail" y terminen en @gmail.com o @hotmail.com (ej: samuel.per@gmail.com).');
+      return;
+    }
+
+    if (emailAuthMode === 'register') {
+      const nombreLimpio = formatearNombre(nombreInput);
+      if (!nombreLimpio || nombreLimpio.split(' ').length < 2) {
+        setAuthError('Escribe tu Nombre Y Apellido completo, con la primera letra en mayúscula. Ejemplo: Samuel Perez.');
+        return;
+      }
+      if (!NOMBRE_REGEX.test(nombreLimpio)) {
+        setAuthError('Tu nombre se corrigió automáticamente a "Samuel Perez". Asegúrate de que cada palabra empiece con mayúscula y sin números ni símbolos extraños.');
+        return;
+      }
+    }
+
+    if (!passwordInput || passwordInput.length < 8) {
+      setAuthError('La contraseña debe tener al menos 8 caracteres.');
       return;
     }
 
     setIsSubmittingAuth(true);
     try {
       if (emailAuthMode === 'register') {
-        const res = await registerWithEmailAndPasswordFirebase(cleanEmail, passwordInput, nombreInput);
+        const res = await registerWithEmailAndPasswordFirebase(cleanEmail, passwordInput, formatearNombre(nombreInput));
         if (!res.success && res.error) {
           setAuthError(res.error);
         } else {
+          setPendienteVerificacionEmail(cleanEmail);
+          setVerificacionPassword(passwordInput);
           setMostrarEmailAuth(false);
           setEmailInput('');
           setPasswordInput('');
           setNombreInput('');
+          await Swal.fire({
+            title: '¡Casi listo! Verifica tu Correo 📧',
+            html: `<p style="font-size:14px;line-height:1.6;">Hemos enviado un <strong>enlace de verificación</strong> a:<br><br><strong style="color:#D6A44B;font-family:monospace;">${cleanEmail}</strong><br><br>Abre ese enlace en tu bandeja de entrada (o carpeta de spam) y luego pulsa <strong>"Ya verifiqué mi correo"</strong> para habilitar tu voto.<br><br><span style="font-size:12px;color:#8a8a8a;">Esto garantiza que cada cuenta pertenece a un correo real y existente.</span></p>`,
+            icon: 'info',
+            iconColor: '#D6A44B',
+            background: '#0F0F0F',
+            color: '#FFF9ED',
+            confirmButtonText: 'Entendido',
+            confirmButtonColor: '#A40B03',
+          });
         }
       } else {
         const res = await loginWithEmailAndPasswordFirebase(cleanEmail, passwordInput);
-        if (!res.success && res.error) {
+        if (res.needsEmailVerification) {
+          setPendienteVerificacionEmail(cleanEmail);
+          setVerificacionPassword(passwordInput);
+          setAuthError(res.error || 'Debes verificar tu correo antes de votar.');
+        } else if (!res.success && res.error) {
           setAuthError(res.error);
         } else {
+          setPendienteVerificacionEmail(null);
+          setVerificacionPassword(null);
           setMostrarEmailAuth(false);
           setEmailInput('');
           setPasswordInput('');
@@ -312,36 +424,202 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
       } else {
         await logoutFirebase();
       }
+      setPendienteVerificacionEmail(null);
+      setVerificacionPassword(null);
     } catch (err: any) {
       console.error(err);
     }
+  };
+
+  // ==== VERIFICACIÓN DE CORREO (seguridad registro correo/contraseña) ====
+  const usuarioPendienteVerificacion = currentUser ? currentUser.emailVerified === false : Boolean(pendienteVerificacionEmail);
+
+  const handleComprobarVerificacion = async () => {
+    setVerificandoYa(true);
+    try {
+      const verificado = await refreshEmailVerificationStatus();
+      if (verificado) {
+        setPendienteVerificacionEmail(null);
+        setVerificacionPassword(null);
+        setAuthError(null);
+        await Swal.fire({
+          title: '¡Correo Verificado! ✅',
+          html: '<p style="font-size:14px;">Tu identidad queda confirmada. <strong>Ya puedes emitir tu voto oficial.</strong></p>',
+          icon: 'success',
+          iconColor: '#10b981',
+          background: '#0F0F0F',
+          color: '#FFF9ED',
+          confirmButtonText: '¡Perfecto!',
+          confirmButtonColor: '#A40B03',
+        });
+      } else {
+        await Swal.fire({
+          title: 'Aún falta verificar 📧',
+          html: '<p style="font-size:14px;line-height:1.6;">No encontramos la verificación todavía.<br><br>1. Abre el correo en tu bandeja de entrada (revisa también <strong>Spam/Promociones</strong>).<br>2. Haz clic en el <strong>enlace de verificación</strong> dentro del correo.<br>3. Regresa aquí y pulsa "Ya verifiqué mi correo".</p>',
+          icon: 'warning',
+          iconColor: '#D6A44B',
+          background: '#0F0F0F',
+          color: '#FFF9ED',
+          confirmButtonText: 'Voy a revisarlo',
+          confirmButtonColor: '#A40B03',
+        });
+      }
+    } finally {
+      setVerificandoYa(false);
+    }
+  };
+
+  const handleReenviarVerificacion = async () => {
+    const email = currentUser?.email || pendienteVerificacionEmail || '';
+    const pass = verificacionPassword || passwordInput;
+    if (!email) return;
+    if (!pass) {
+      setAuthError('Escribe tu contraseña aquí arriba para poder reenviar el enlace de verificación.');
+      return;
+    }
+    setReenviandoVerificacion(true);
+    try {
+      const res = await resendVerificationEmailFirebase(email, pass);
+      if (res.success) {
+        await Swal.fire({
+          title: 'Enlace reenviado 📬',
+          html: `<p style="font-size:14px;">Hemos enviado nuevamente el enlace de verificación a <strong style="font-family:monospace;color:#D6A44B;">${email}</strong>.</p>`,
+          icon: 'info',
+          iconColor: '#D6A44B',
+          background: '#0F0F0F',
+          color: '#FFF9ED',
+          confirmButtonText: 'Entendido',
+          confirmButtonColor: '#A40B03',
+        });
+      } else {
+        setAuthError(res.error || 'No se pudo reenviar el correo de verificación.');
+        await Swal.fire({
+          title: 'No se pudo reenviar',
+          text: res.error || 'Error al reenviar el enlace de verificación.',
+          icon: 'error',
+          iconColor: '#A40B03',
+          background: '#0F0F0F',
+          color: '#FFF9ED',
+          confirmButtonText: 'Entendido',
+          confirmButtonColor: '#A40B03',
+        });
+      }
+    } finally {
+      setReenviandoVerificacion(false);
+    }
+  };
+
+  const CODIGO_PREFIJO = 'FOODFEST-';
+
+  const handleCodigoChange = (val: string) => {
+    let v = val.toUpperCase().replace(/[^A-Z0-9-]/g, '');
+    if (v.startsWith(CODIGO_PREFIJO)) v = v.slice(CODIGO_PREFIJO.length);
+    setCodigoInput(v);
+  };
+
+  // Todos los errores de votación se muestran con SweetAlert2 + banner inline
+  const showVoteError = (msg: string) => {
+    setErrorMessage(msg);
+    Swal.fire({
+      title: 'Error de Votación',
+      text: msg,
+      icon: 'error',
+      iconColor: '#A40B03',
+      background: '#0F0F0F',
+      color: '#FFF9ED',
+      confirmButtonText: 'Entendido',
+      confirmButtonColor: '#A40B03',
+    });
   };
 
   const handleSubmitVote = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
 
+    // Anti double-submit guard (click spam / Enter key repeat)
+    if (isSubmitting || voteLockRef.current || votoExitoso) {
+      return;
+    }
+
     if (restaurante.descalificado) {
-      setErrorMessage('Este restaurante ha sido descalificado de la competición. No se permiten votos.');
+      showVoteError('Este restaurante ha sido descalificado de la competición. No se permiten votos.');
       return;
     }
 
     if (!currentUser || !currentUser.uid) {
-      setErrorMessage('Debes iniciar sesión con tu cuenta de Google / Gmail en el Paso 1 para poder votar.');
+      showVoteError('Debes iniciar sesión con tu cuenta de Google / Gmail en el Paso 1 para poder votar.');
+      return;
+    }
+
+    if (currentUser.emailVerified === false) {
+      showVoteError('Debes verificar tu correo electrónico antes de votar: abre el enlace que enviamos a ' + (currentUser.email || '') + ' y luego pulsa "Ya verifiqué mi correo".');
       return;
     }
 
     if (yaVotoEnEsteRestaurante) {
-      setErrorMessage('Ya has emitido tu voto para este restaurante con tu cuenta. Solo se permite 1 voto por restaurante.');
+      showVoteError('Ya has emitido tu voto para este restaurante con tu cuenta. Solo se permite 1 voto por restaurante.');
       return;
     }
 
-    const cleanCode = codigoInput.trim().toUpperCase();
-    if (!cleanCode) {
-      setErrorMessage('Por favor ingresa el código alfanumérico impreso en tu comprobante de mesa.');
+    const cleanSuffix = codigoInput.trim().toUpperCase();
+    if (!cleanSuffix) {
+      showVoteError('Por favor ingresa el código impreso en tu comprobante de mesa (después del prefijo FOODFEST-). Ejemplo: FOODFEST-78SX-1JE.');
       return;
     }
 
+    if (!/^[A-Z0-9]{2,8}(-[A-Z0-9]{2,8})?$/.test(cleanSuffix)) {
+      showVoteError('El formato del código no es válido. Debe ser similar a: FOODFEST-78SX-1JE o FOODFEST-CJXA-I0G.');
+      return;
+    }
+
+    const cleanCode = `${CODIGO_PREFIJO}${cleanSuffix}`;
+
+    // VALIDACIÓN: Calificación Global obligatoria (estrellas)
+    if (ratingGeneral < 1) {
+      showVoteError('Debes seleccionar la Calificación Global en estrellas (de 1 a 5) antes de registrar tu voto.');
+      return;
+    }
+
+    // VALIDACIÓN: Criterios Técnicos del Festival obligatorios
+    const criteriosPendientes = Object.values(criterios).some((v) => !v || v < 1);
+    if (criteriosPendientes) {
+      showVoteError('Debes calificar los 4 Criterios Técnicos del Festival (mínimo 1 estrella en cada criterio) antes de registrar tu voto.');
+      return;
+    }
+
+    // SEGURIDAD: Confirmación explícita del voto antes de emitir
+    const confirmacion = await Swal.fire({
+      title: 'Confirmar tu Voto Oficial',
+      html: `
+        <div style="text-align:left;font-size:14px;line-height:1.6;">
+          <p>Estás a punto de calificar a <strong style="color:#FFF9ED;">${restaurante.nombreHamburguesa}</strong> de <strong style="color:#A40B03;">${restaurante.nombre}</strong>:</p>
+          <ul style="margin:10px 0 0 18px;padding:0;color:#c8bdb2;">
+            <li>Calificación Global: <strong style="color:#FFF9ED;">${ratingGeneral} ★ de 5</strong></li>
+            <li>Sabor & Punto del Plato: <strong style="color:#FFF9ED;">${criterios.saborCarne}/5</strong></li>
+            <li>Textura & Presentación: <strong style="color:#FFF9ED;">${criterios.calidadPan}/5</strong></li>
+            <li>Salsas & Acompañamientos: <strong style="color:#FFF9ED;">${criterios.salsasYToppings}/5</strong></li>
+            <li>Creatividad & Toque Autóctono: <strong style="color:#FFF9ED;">${criterios.creatividad}/5</strong></li>
+          </ul>
+          <p style="margin-top:12px;font-size:12px;color:#8a8a8a;">Solo puedes votar <strong>una sola vez</strong> por restaurante. Esta acción no se puede deshacer.</p>
+        </div>`,
+      icon: 'question',
+      iconColor: '#D6A44B',
+      background: '#0F0F0F',
+      color: '#FFF9ED',
+      showCancelButton: true,
+      confirmButtonText: 'Sí, Emitir Mi Voto',
+      cancelButtonText: 'Revisar mi Ficha',
+      confirmButtonColor: '#A40B03',
+      cancelButtonColor: '#2a2a2a',
+      reverseButtons: true,
+      allowOutsideClick: false,
+      allowEscapeKey: true,
+    });
+
+    if (!confirmacion.isConfirmed) return;
+
+    // BLOQUEO INMEDIATO: nadie puede volver a enviar mientras se procesa
+    voteLockRef.current = true;
     setIsSubmitting(true);
 
     try {
@@ -359,15 +637,36 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
         setYaVotoEnEsteRestaurante(true);
         setVotoReciboId('VOTO-' + Math.floor(Math.random() * 90000 + 10000));
         onVoteCompleted();
+        fireConfetti();
+        await Swal.fire({
+          title: '¡Voto Registrado! 🍔',
+          html: `<p style="font-size:14px;">Tu voto por <strong>${restaurante.nombreHamburguesa}</strong> fue emitido de forma segura y auditada.</p>`,
+          icon: 'success',
+          iconColor: '#A40B03',
+          background: '#0F0F0F',
+          color: '#FFF9ED',
+          confirmButtonText: '¡Genial!',
+          confirmButtonColor: '#A40B03',
+          timer: 4200,
+          timerProgressBar: true,
+        });
       } else {
-        setErrorMessage(res.message);
+        voteLockRef.current = false;
+        showVoteError(res.message);
       }
     } catch (err: any) {
-      setErrorMessage(err.message || 'Error al procesar el voto. Intenta nuevamente.');
+      voteLockRef.current = false;
+      showVoteError(err.message || 'Error al procesar el voto. Intenta nuevamente.');
     } finally {
       setIsSubmitting(false);
     }
   };
+
+  const tieneErroresDeFormulario =
+    currentUser &&
+    (usuarioPendienteVerificacion || ratingGeneral < 1 || Object.values(criterios).some((v) => !v || v < 1) || !codigoInput.trim());
+
+  const criteriosPendientesUI = Object.values(criterios).some((v) => !v || v < 1);
 
   return (
     <div ref={detailRef} className="min-h-screen bg-black/60 backdrop-blur-[2px] text-[#FFF9ED] py-6 sm:py-10">
@@ -624,7 +923,7 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
                       Restaurante Descalificado
                     </h4>
                     <p className="text-xs sm:text-sm text-red-300/80 mt-2 max-w-md mx-auto">
-                      Este participante ha sido retirado oficialmente del concurso por el Comité de Auditoría y Control de Calidad The Best Burger 2026.
+                      Este participante ha sido retirado oficialmente del concurso por el Comité de Auditoría y Control de Calidad.
                     </p>
                     {restaurante.motivoDescalificacion && (
                       <div className="mt-4 p-3 rounded-xl bg-red-950/40 border border-red-800/40 text-xs text-red-200/90 text-left max-w-md mx-auto">
@@ -708,21 +1007,22 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
                   </div>
 
                   <div className="pt-4 flex flex-col sm:flex-row items-center justify-center gap-3">
-                    <button
-                      onClick={onBack}
-                      className="w-full sm:w-auto px-6 py-3 rounded-xl bg-gradient-to-r from-[#A40B03] to-[#BF0E05] text-[#FFF9ED] text-xs sm:text-sm font-extrabold hover:shadow-lg hover:shadow-[#A40B03]/40 transition-all border border-[#A40B03]/60 flex items-center justify-center gap-2"
-                    >
-                      <Flame className="w-4 h-4" />
-                      <span>Votar en Otros Restaurantes</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleLogout}
-                      className="w-full sm:w-auto px-4 py-3 rounded-xl bg-black border border-stone-800 text-stone-400 hover:text-stone-200 text-xs font-semibold hover:border-stone-700 transition-all flex items-center justify-center gap-1.5"
-                    >
-                      <LogOut className="w-3.5 h-3.5" />
-                      <span>Cambiar de Cuenta</span>
-                    </button>
+                     <button
+                       type="button"
+                       onClick={onGoHome ?? onBack}
+                       className="w-full sm:w-auto px-6 py-3 rounded-xl bg-gradient-to-r from-[#A40B03] to-[#BF0E05] text-[#FFF9ED] text-xs sm:text-sm font-extrabold hover:shadow-lg hover:shadow-[#A40B03]/40 transition-all border border-[#A40B03]/60 flex items-center justify-center gap-2"
+                     >
+                       <Home className="w-4 h-4" />
+                       <span>Ir al Inicio</span>
+                     </button>
+                     <button
+                       type="button"
+                       onClick={onBack}
+                       className="w-full sm:w-auto px-4 py-3 rounded-xl bg-black border border-stone-800 text-stone-400 hover:text-stone-200 text-xs font-semibold hover:border-stone-700 transition-all flex items-center justify-center gap-1.5"
+                     >
+                       <Flame className="w-3.5 h-3.5" />
+                       <span>Votar en Otros Restaurantes</span>
+                     </button>
                   </div>
                 </motion.div>
               ) : (
@@ -889,7 +1189,7 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
                                         type="email"
                                         value={emailInput}
                                         onChange={(e) => setEmailInput(e.target.value)}
-                                        placeholder="tu.correo@ejemplo.com"
+                                        placeholder="tu.nombre@gmail.com"
                                         className="w-full pl-10 pr-3.5 py-2.5 rounded-xl bg-stone-900 border border-stone-800 focus:border-[#A40B03] outline-none text-xs text-[#FFF9ED] placeholder:text-stone-600 transition-all"
                                       />
                                     </div>
@@ -957,11 +1257,12 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
                                       </label>
                                       <div className="relative">
                                         <User className="w-4 h-4 text-stone-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                                        <input
-                                          type="text"
-                                          value={nombreInput}
-                                          onChange={(e) => setNombreInput(e.target.value)}
-                                          placeholder="Ej: Carlos Pérez"
+                                       <input
+                                         type="text"
+                                         value={nombreInput}
+                                         onChange={(e) => setNombreInput(formatearNombre(e.target.value))}
+                                         onBlur={() => setNombreInput(formatearNombre(nombreInput))}
+                                         placeholder="Ej: Samuel Perez"
                                           className="w-full pl-10 pr-3.5 py-2.5 rounded-xl bg-stone-900 border border-stone-800 focus:border-[#A40B03] outline-none text-xs text-[#FFF9ED] placeholder:text-stone-600 transition-all"
                                         />
                                       </div>
@@ -978,7 +1279,7 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
                                         type="email"
                                         value={emailInput}
                                         onChange={(e) => setEmailInput(e.target.value)}
-                                        placeholder="tu.correo@ejemplo.com"
+                                        placeholder="tu.nombre@gmail.com"
                                         className="w-full pl-10 pr-3.5 py-2.5 rounded-xl bg-stone-900 border border-stone-800 focus:border-[#A40B03] outline-none text-xs text-[#FFF9ED] placeholder:text-stone-600 transition-all"
                                       />
                                     </div>
@@ -1020,6 +1321,9 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
                                         {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                                       </button>
                                     </div>
+                                    <p className="text-[10px] text-stone-500 leading-relaxed">
+                                      ✅ Solo correos <span className="font-bold text-stone-400">@gmail.com</span> o <span className="font-bold text-stone-400">@hotmail.com</span> • La contraseña debe tener <span className="font-bold text-stone-400">8+ caracteres</span>
+                                    </p>
                                   </div>
                                 </div>
 
@@ -1087,6 +1391,72 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
                         </button>
                       </div>
                     </div>
+                   ) : usuarioPendienteVerificacion ? (
+                     <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-br from-amber-950/40 via-[#141210] to-black border border-amber-500/40 space-y-4 shadow-xl">
+                       <div className="flex items-start gap-3">
+                         <div className="w-11 h-11 rounded-full bg-amber-500/15 border border-amber-500/40 flex items-center justify-center shrink-0">
+                           <Mail className="w-5 h-5 text-amber-400 animate-pulse" />
+                         </div>
+                         <div>
+                           <span className="text-xs font-black uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+                             <AlertCircle className="w-3.5 h-3.5" />
+                             Paso 1: Verificación de Correo Pendiente
+                           </span>
+                           <h4 className="text-base font-bold text-[#FFF9ED] mt-1">
+                             Confirma que este correo es tuyo
+                           </h4>
+                           <p className="text-xs text-stone-300 mt-1 leading-relaxed">
+                             Enviamos un <strong className="text-[#FFF9ED]">enlace de verificación</strong> a{' '}
+                             <strong className="text-amber-300 font-mono">{currentUser?.email || pendienteVerificacionEmail}</strong>.
+                             Ábrelo desde tu teléfono o PC (revisa Spam/Promociones) para demostrar que el buzón existe y es tuyo.
+                            </p>
+                          <p className="text-[11px] text-stone-400 mt-1">
+                            🔒 <strong>Google no lo requiere</strong> porque sus cuentas ya llegan verificadas. Mientras falte la verificación, la votación permanece bloqueada.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col sm:flex-row gap-2.5">
+                        <button
+                          type="button"
+                          onClick={handleComprobarVerificacion}
+                          disabled={verificandoYa}
+                          className="flex-1 py-2.5 px-4 rounded-xl bg-gradient-to-r from-emerald-700 to-emerald-600 hover:opacity-95 text-white text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
+                        >
+                          {verificandoYa ? (
+                            <>
+                              <span className="animate-spin rounded-full h-3.5 w-3.5 border-2 border-white border-t-transparent" />
+                              <span>Comprobando...</span>
+                            </>
+                          ) : (
+                            <>
+                              <CheckCircle2 className="w-4 h-4" />
+                              <span>Ya verifiqué mi correo</span>
+                            </>
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleReenviarVerificacion}
+                          disabled={reenviandoVerificacion}
+                          className="flex-1 py-2.5 px-4 rounded-xl bg-black border border-amber-500/40 text-amber-300 hover:text-amber-200 hover:border-amber-400/70 text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
+                        >
+                          <RefreshCw className={`w-4 h-4 ${reenviandoVerificacion ? 'animate-spin' : ''}`} />
+                          <span>{reenviandoVerificacion ? 'Reenviando...' : 'Reenviar correo'}</span>
+                        </button>
+                      </div>
+
+                      <div className="flex justify-center pt-1">
+                        <button
+                          type="button"
+                          onClick={handleLogout}
+                          className="text-[11px] text-stone-500 hover:text-stone-300 underline decoration-stone-700 transition-colors inline-flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <LogOut className="w-3 h-3" />
+                          <span>Salir y usar mi cuenta de Google en su lugar</span>
+                        </button>
+                      </div>
+                    </div>
                   ) : (
                     <div className="p-3.5 sm:p-4 rounded-2xl bg-emerald-950/30 border border-emerald-500/30 flex items-center justify-between gap-3 shadow-md">
                       <div className="flex items-center gap-3 min-w-0">
@@ -1129,33 +1499,44 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
                     </div>
                   )}
 
-                  {/* Step 2: Security Code Input */}
-                  <div className={`space-y-2 ${!currentUser ? 'opacity-50 pointer-events-none' : ''}`}>
-                    <label className="block text-xs font-bold uppercase tracking-wider text-[#FFF9ED]">
-                      2. Código Único de Mesa (Entregado con tu hamburguesa)
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      disabled={!currentUser}
-                      value={codigoInput}
-                      onChange={(e) => setCodigoInput(e.target.value.toUpperCase())}
-                      placeholder={currentUser ? "Ej: TOCUYO-ALFA-901" : "Inicia sesión con Google para ingresar el código"}
-                      className="w-full px-4 py-3 rounded-2xl bg-black border border-stone-800 focus:border-[#A40B03] focus:ring-1 focus:ring-[#A40B03] outline-none text-[#FFF9ED] font-mono text-base tracking-widest font-bold uppercase placeholder:text-stone-600 transition-all disabled:cursor-not-allowed"
-                    />
-                  </div>
+                   {/* Step 2: Security Code Input */}
+                   <div className={`space-y-2 ${(!currentUser || usuarioPendienteVerificacion) ? 'opacity-50 pointer-events-none' : ''}`}>
+                     <label className="block text-xs font-bold uppercase tracking-wider text-[#FFF9ED]">
+                       2. Código Único de Mesa (Entregado con tu hamburguesa)
+                     </label>
+                     <div className="flex items-stretch rounded-2xl bg-black border border-stone-800 focus-within:border-[#A40B03] focus-within:ring-1 focus-within:ring-[#A40B03] transition-all overflow-hidden disabled:opacity-60">
+                       <span className="flex items-center px-4 py-3 bg-[#A40B03]/15 border-r border-[#A40B03]/40 font-mono text-base tracking-widest font-black text-[#A40B03] select-none shrink-0">
+                         FOODFEST-
+                       </span>
+                       <input
+                         type="text"
+                         required
+                         disabled={!currentUser || usuarioPendienteVerificacion}
+                         value={codigoInput}
+                         onChange={(e) => handleCodigoChange(e.target.value)}
+                         placeholder={currentUser ? "78SX-1JE" : "Inicia sesión con Google para ingresar el código"}
+                         className="flex-1 min-w-0 px-4 py-3 bg-transparent outline-none text-[#FFF9ED] font-mono text-base tracking-widest font-bold uppercase placeholder:text-stone-600 disabled:cursor-not-allowed"
+                       />
+                     </div>
+                     <p className="text-[10px] text-stone-500 font-medium">
+                       El prefijo <span className="font-mono text-[#A40B03] font-bold">FOODFEST-</span> ya está incluido. Ejemplos válidos: FOODFEST-<span className="font-mono">CJXA-I0G</span>, FOODFEST-<span className="font-mono">78SX-1JE</span>
+                     </p>
+                   </div>
 
                   {/* Step 3: 5-Star General Rating */}
-                  <div className={`space-y-2 pt-2 border-t border-stone-800 ${!currentUser ? 'opacity-50 pointer-events-none' : ''}`}>
+                  <div className={`space-y-2 pt-2 border-t border-stone-800 ${(!currentUser || usuarioPendienteVerificacion) ? 'opacity-50 pointer-events-none' : ''}`}>
                     <label className="block text-xs font-bold uppercase tracking-wider text-[#FFF9ED]">
-                      3. Calificación Global ({ratingGeneral} de 5 estrellas)
+                      3. Calificación Global {ratingGeneral > 0 ? `(${ratingGeneral} de 5 estrellas)` : '(Selecciona de 1 a 5 estrellas)'}
+                      {ratingGeneral < 1 && currentUser && (
+                        <span className="ml-2 text-[10px] font-black text-amber-400 normal-case">• Obligatorio *</span>
+                      )}
                     </label>
                     <div className="flex items-center gap-2">
                       {[1, 2, 3, 4, 5].map((star) => (
                         <button
                           key={star}
                           type="button"
-                          disabled={!currentUser}
+                          disabled={!currentUser || usuarioPendienteVerificacion}
                           onClick={() => setRatingGeneral(star)}
                           onMouseEnter={() => setHoverRating(star)}
                           onMouseLeave={() => setHoverRating(null)}
@@ -1171,7 +1552,7 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
                         </button>
                       ))}
                       <span className="ml-2 font-bold text-lg text-[#FFF9ED] font-mono">
-                        {ratingGeneral}.0
+                        {ratingGeneral > 0 ? `${ratingGeneral}.0` : '0.0'}
                       </span>
                     </div>
 
@@ -1179,6 +1560,9 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
                     <div className="space-y-4 pt-3">
                       <label className="block text-xs font-bold uppercase tracking-wider text-stone-300">
                         Criterios Técnicos del Festival
+                        {criteriosPendientesUI && currentUser && (
+                          <span className="ml-2 text-[10px] font-black text-amber-400 normal-case">• Los 4 son obligatorios *</span>
+                        )}
                       </label>
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1186,11 +1570,11 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
                         <div className="p-3 rounded-xl bg-black border border-stone-800 space-y-1.5">
                           <div className="flex justify-between text-xs font-semibold text-stone-300">
                             <span>Sabor & Punto del Plato</span>
-                            <span className="text-[#A40B03] font-bold font-mono">{criterios.saborCarne}/5</span>
+                            <span className={`font-bold font-mono ${criterios.saborCarne > 0 ? 'text-[#A40B03]' : 'text-stone-600'}`}>{criterios.saborCarne > 0 ? `${criterios.saborCarne}/5` : 'Sin calificar'}</span>
                           </div>
                           <input
                             type="range"
-                            min="1"
+                            min="0"
                             max="5"
                             value={criterios.saborCarne}
                             onChange={(e) => setCriterios({ ...criterios, saborCarne: Number(e.target.value) })}
@@ -1202,11 +1586,11 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
                         <div className="p-3 rounded-xl bg-black border border-stone-800 space-y-1.5">
                           <div className="flex justify-between text-xs font-semibold text-stone-300">
                             <span>Textura & Presentación</span>
-                            <span className="text-[#A40B03] font-bold font-mono">{criterios.calidadPan}/5</span>
+                            <span className={`font-bold font-mono ${criterios.calidadPan > 0 ? 'text-[#A40B03]' : 'text-stone-600'}`}>{criterios.calidadPan > 0 ? `${criterios.calidadPan}/5` : 'Sin calificar'}</span>
                           </div>
                           <input
                             type="range"
-                            min="1"
+                            min="0"
                             max="5"
                             value={criterios.calidadPan}
                             onChange={(e) => setCriterios({ ...criterios, calidadPan: Number(e.target.value) })}
@@ -1218,11 +1602,11 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
                         <div className="p-3 rounded-xl bg-black border border-stone-800 space-y-1.5">
                           <div className="flex justify-between text-xs font-semibold text-stone-300">
                             <span>Salsas & Acompañamientos</span>
-                            <span className="text-[#A40B03] font-bold font-mono">{criterios.salsasYToppings}/5</span>
+                            <span className={`font-bold font-mono ${criterios.salsasYToppings > 0 ? 'text-[#A40B03]' : 'text-stone-600'}`}>{criterios.salsasYToppings > 0 ? `${criterios.salsasYToppings}/5` : 'Sin calificar'}</span>
                           </div>
                           <input
                             type="range"
-                            min="1"
+                            min="0"
                             max="5"
                             value={criterios.salsasYToppings}
                             onChange={(e) => setCriterios({ ...criterios, salsasYToppings: Number(e.target.value) })}
@@ -1234,11 +1618,11 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
                         <div className="p-3 rounded-xl bg-black border border-stone-800 space-y-1.5">
                           <div className="flex justify-between text-xs font-semibold text-stone-300">
                             <span>Creatividad & Toque Autóctono</span>
-                            <span className="text-[#A40B03] font-bold font-mono">{criterios.creatividad}/5</span>
+                            <span className={`font-bold font-mono ${criterios.creatividad > 0 ? 'text-[#A40B03]' : 'text-stone-600'}`}>{criterios.creatividad > 0 ? `${criterios.creatividad}/5` : 'Sin calificar'}</span>
                           </div>
                           <input
                             type="range"
-                            min="1"
+                            min="0"
                             max="5"
                             value={criterios.creatividad}
                             onChange={(e) => setCriterios({ ...criterios, creatividad: Number(e.target.value) })}
@@ -1250,7 +1634,7 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
                   </div>
 
                   {/* Step 4: Comentario opcional */}
-                  <div className={`space-y-2 pt-2 border-t border-stone-800 ${!currentUser ? 'opacity-50 pointer-events-none' : ''}`}>
+                  <div className={`space-y-2 pt-2 border-t border-stone-800 ${(!currentUser || usuarioPendienteVerificacion) ? 'opacity-50 pointer-events-none' : ''}`}>
                     <label className="block text-xs font-bold uppercase tracking-wider text-stone-300">
                       4. Comentario u Opinión (Opcional)
                     </label>
@@ -1275,11 +1659,12 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
                       <span>Inicia Sesión con Google para Votar</span>
                     </button>
                   ) : (
-                    <button
-                      type="submit"
-                      disabled={isSubmitting}
-                      className="w-full py-4 rounded-2xl font-extrabold text-[#FFF9ED] bg-gradient-to-r from-[#A40B03] via-[#BF0E05] to-[#7A0802] border border-[#A40B03]/60 hover:shadow-2xl hover:shadow-[#A40B03]/40 transition-all flex items-center justify-center gap-2 text-sm sm:text-base disabled:opacity-50 cursor-pointer"
-                    >
+                     <button
+                       type="submit"
+                       disabled={isSubmitting || !!tieneErroresDeFormulario}
+                       title={tieneErroresDeFormulario ? 'Completa el código, las estrellas y los 4 criterios técnicos antes de enviar' : 'Emitir voto oficial'}
+                       className="w-full py-4 rounded-2xl font-extrabold text-[#FFF9ED] bg-gradient-to-r from-[#A40B03] via-[#BF0E05] to-[#7A0802] border border-[#A40B03]/60 hover:shadow-2xl hover:shadow-[#A40B03]/40 transition-all flex items-center justify-center gap-2 text-sm sm:text-base disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                     >
                       {isSubmitting ? (
                         <span className="flex items-center gap-2">
                           <span className="animate-spin rounded-full h-4 w-4 border-2 border-[#FFF9ED] border-t-transparent" />
@@ -1324,7 +1709,7 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
               {/* Video Player or Interactive Instagram / YouTube Frame */}
               <div className="space-y-4">
                 <div className={isVerticalVideo
-                  ? 'mx-auto w-full max-w-[340px] rounded-[2rem] border border-white/15 bg-[#090909] p-2.5 shadow-[0_24px_60px_rgba(0,0,0,0.75)] space-y-3'
+                  ? 'mx-auto w-full max-w-[340px] rounded-[2rem] border border-[#090909] bg-[#090909] p-2.5 shadow-[0_24px_60px_rgba(0,0,0,0.75)] space-y-3'
                   : 'space-y-4'
                 }>
                   {isVerticalVideo && (
@@ -1347,7 +1732,7 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
                 {isInstagramVideo && instagramEmbedUrl ? (
                   /* CASO 1: REEL OFICIAL DE INSTAGRAM EMBED */
                   <div className="space-y-3">
-                    <div className="relative aspect-[9/16] w-full overflow-hidden rounded-[1.35rem] border border-white/10 bg-black shadow-2xl">
+                    <div className="relative aspect-[9/16] w-full overflow-hidden rounded-[1.35rem] border border-black bg-black shadow-2xl">
                       <iframe
                         src={instagramEmbedUrl}
                         className="absolute inset-0 h-full w-full border-0 bg-black"
@@ -1374,7 +1759,7 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
                 ) : isYoutubeVideo && youtubeEmbedUrl ? (
                   /* CASO 2: YOUTUBE / YOUTUBE SHORTS (AUTOPLAY EN BUCLE) */
                   <div className="space-y-3">
-                    <div className={`relative overflow-hidden rounded-[1.35rem] bg-black border border-white/10 shadow-2xl w-full ${isYoutubeShort ? 'aspect-[9/16]' : 'aspect-video'}`}>
+                    <div className={`relative overflow-hidden rounded-[1.35rem] bg-black border border-black shadow-2xl w-full ${isYoutubeShort ? 'aspect-[9/16]' : 'aspect-video'}`}>
                       <iframe
                         src={youtubeEmbedUrl}
                         className="absolute inset-0 h-full w-full border-0"
@@ -1399,7 +1784,7 @@ export const RestaurantDetailView: React.FC<RestaurantDetailViewProps> = ({
                 ) : isDirectVideo ? (
                   /* CASO 3: VIDEO DIRECTO MP4 / WEBM (AUTOPLAY EN BUCLE SIN AUDIO) */
                   <div className="space-y-3">
-                    <div className="relative aspect-[9/16] w-full overflow-hidden rounded-[1.35rem] border border-white/10 bg-black shadow-2xl group">
+                    <div className="relative aspect-[9/16] w-full overflow-hidden rounded-[1.35rem] border border-black bg-black shadow-2xl group">
                       <video
                         ref={videoRef}
                         src={rawVideoUrl}

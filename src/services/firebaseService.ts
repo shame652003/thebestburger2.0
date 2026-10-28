@@ -24,7 +24,10 @@ import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   updateProfile,
-  sendPasswordResetEmail
+  sendPasswordResetEmail,
+  sendEmailVerification,
+  EmailAuthProvider,
+  reauthenticateWithCredential
 } from "firebase/auth";
 import { Voto, CriteriosVoto, Restaurante, Patrocinador, EstadisticasEvento, CodigoVoto, UsuarioAuth, RegistroCompraPatrocinador } from "../types";
 export const convertImageToBase64 = (file: File, maxWidth = 800): Promise<string> => {
@@ -121,7 +124,8 @@ export const loginWithGoogle = async (preferRedirect = false): Promise<{ success
       uid: u.uid,
       email: u.email,
       displayName: u.displayName || u.email?.split('@')[0] || "Comensal Food Fest",
-      photoURL: u.photoURL
+      photoURL: u.photoURL,
+      emailVerified: u.emailVerified ?? true
     };
     setStoredComensalUser(usuarioAuth);
     notifyAuthSubscribers(usuarioAuth);
@@ -153,7 +157,7 @@ export const loginWithGoogleRedirect = async (): Promise<void> => {
 export const loginWithEmailAndPasswordFirebase = async (
   email: string, 
   password: string
-): Promise<{ success: boolean; user?: UsuarioAuth; error?: string; code?: string }> => {
+): Promise<{ success: boolean; user?: UsuarioAuth; error?: string; code?: string; needsEmailVerification?: boolean }> => {
   const cleanEmail = email.trim().toLowerCase();
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!cleanEmail || !emailRegex.test(cleanEmail)) {
@@ -166,11 +170,37 @@ export const loginWithEmailAndPasswordFirebase = async (
   try {
     const cred = await signInWithEmailAndPassword(auth, cleanEmail, password);
     const u = cred.user;
+
+    if (!u.emailVerified) {
+      // Reenviar enlace automáticamente (best-effort) y notificar que falta verificación
+      try {
+        await sendEmailVerification(u);
+      } catch (e) {
+        console.warn("No se pudo reenviar la verificación:", e);
+      }
+      const usuarioAuth: UsuarioAuth = {
+        uid: u.uid,
+        email: u.email,
+        displayName: u.displayName || u.email?.split('@')[0] || "Comensal Food Fest",
+        photoURL: u.photoURL,
+        emailVerified: false
+      };
+      setStoredComensalUser(usuarioAuth);
+      notifyAuthSubscribers(usuarioAuth);
+      return {
+        success: false,
+        user: usuarioAuth,
+        needsEmailVerification: true,
+        error: `Tu correo ${cleanEmail} aún no ha sido verificado. Enviamos un nuevo enlace de verificación: ábrelo en tu bandeja de entrada y luego inicia sesión nuevamente.`
+      };
+    }
+
     const usuarioAuth: UsuarioAuth = {
       uid: u.uid,
       email: u.email,
       displayName: u.displayName || u.email?.split('@')[0] || "Comensal Food Fest",
-      photoURL: u.photoURL
+      photoURL: u.photoURL,
+      emailVerified: true
     };
     setStoredComensalUser(usuarioAuth);
     notifyAuthSubscribers(usuarioAuth);
@@ -200,14 +230,14 @@ export const registerWithEmailAndPasswordFirebase = async (
   email: string, 
   password: string,
   displayName?: string
-): Promise<{ success: boolean; user?: UsuarioAuth; error?: string; code?: string }> => {
+): Promise<{ success: boolean; user?: UsuarioAuth; error?: string; code?: string; requiresVerification?: boolean }> => {
   const cleanEmail = email.trim().toLowerCase();
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const emailRegex = /^[a-z0-9](?:[a-z0-9._%+-]*[a-z0-9])?@(?:gmail|hotmail)\.com$/;
   if (!cleanEmail || !emailRegex.test(cleanEmail)) {
-    return { success: false, error: "Por favor ingresa un correo electrónico válido." };
+    return { success: false, error: "Por seguridad solo se permiten correos reales que terminen en @gmail.com o @hotmail.com." };
   }
-  if (!password || password.length < 6) {
-    return { success: false, error: "La contraseña debe tener al menos 6 caracteres." };
+  if (!password || password.length < 8) {
+    return { success: false, error: "La contraseña debe tener al menos 8 caracteres." };
   }
 
   try {
@@ -219,15 +249,34 @@ export const registerWithEmailAndPasswordFirebase = async (
       await updateProfile(u, { displayName: finalName });
     } catch {}
 
+    // SEGURIDAD: enviar enlace de verificación. El voto queda bloqueado hasta
+    // que el usuario abra el enlace (demuestra que el buzón realmente existe).
+    let verificationSent = true;
+    try {
+      await sendEmailVerification(u);
+    } catch (e) {
+      console.error("Error enviando correo de verificación:", e);
+      verificationSent = false;
+    }
+
     const usuarioAuth: UsuarioAuth = {
       uid: u.uid,
       email: u.email,
       displayName: finalName,
-      photoURL: u.photoURL
+      photoURL: u.photoURL,
+      emailVerified: u.emailVerified ?? false
     };
     setStoredComensalUser(usuarioAuth);
     notifyAuthSubscribers(usuarioAuth);
-    return { success: true, user: usuarioAuth };
+
+    return {
+      success: true,
+      user: usuarioAuth,
+      requiresVerification: true,
+      error: verificationSent
+        ? undefined
+        : "Cuenta creada, pero no pudimos enviar el correo de verificación. Usa 'Reenviar correo' para intentarlo de nuevo."
+    };
   } catch (error: any) {
     console.error("Error en registerWithEmailAndPasswordFirebase:", error);
     const code = error.code || '';
@@ -244,6 +293,66 @@ export const registerWithEmailAndPasswordFirebase = async (
     }
 
     return { success: false, error: message, code };
+  }
+};
+
+// ==========================================
+// 0.B VERIFICACIÓN DE CORREO (EMAIL/PASSWORD)
+// ==========================================
+
+export const resendVerificationEmailFirebase = async (
+  email: string,
+  password: string
+): Promise<{ success: boolean; error?: string }> => {
+  const u = auth.currentUser;
+  if (!u || !u.email) {
+    return { success: false, error: "No hay una sesión activa. Inicia sesión primero." };
+  }
+  if (u.emailVerified) {
+    return { success: true };
+  }
+
+  try {
+    // Re-autenticación obligatoria para reenviar verificación con session fresh
+    const credential = EmailAuthProvider.credential(email.trim().toLowerCase(), password);
+    await reauthenticateWithCredential(u, credential);
+    await sendEmailVerification(u);
+    return { success: true };
+  } catch (error: any) {
+    const code = error.code || '';
+    if (code === 'auth/weak-login' || code === 'auth/requires-recent-login' || code === 'auth/firebase-auth-weak') {
+      return { success: false, error: "Por seguridad, cierra sesión y vuelve a iniciar sesión con tu contraseña: el enlace de verificación se reenviará automáticamente." };
+    }
+    if (code === 'auth/too-many-requests') {
+      return { success: false, error: "Demasiados envíos seguidos. Espera unos minutos antes de reenviar." };
+    }
+    if (code === 'auth/invalid-credential' || code === 'auth/wrong-password') {
+      return { success: false, error: "La contraseña ingresada no es correcta. Vuelve a escribirla para reenviar la verificación." };
+    }
+    return { success: false, error: "No se pudo reenviar el correo de verificación. Intenta nuevamente." };
+  }
+};
+
+// Recarga el usuario desde Firebase y devuelve true si ya verificó su correo
+export const refreshEmailVerificationStatus = async (): Promise<boolean> => {
+  try {
+    const u = auth.currentUser;
+    if (!u) return false;
+    await u.reload();
+    const verified = u.emailVerified;
+    const usuarioAuth: UsuarioAuth = {
+      uid: u.uid,
+      email: u.email,
+      displayName: u.displayName || u.email?.split('@')[0] || "Comensal Food Fest",
+      photoURL: u.photoURL,
+      emailVerified: verified
+    };
+    setStoredComensalUser(usuarioAuth);
+    notifyAuthSubscribers(usuarioAuth);
+    return verified;
+  } catch (e) {
+    console.error("Error al recargar estado de verificación:", e);
+    return false;
   }
 };
 
@@ -302,7 +411,8 @@ export const onAuthChange = (callback: (user: UsuarioAuth | null) => void) => {
           uid: u.uid,
           email: u.email,
           displayName: u.displayName || u.email?.split('@')[0] || "Comensal Food Fest",
-          photoURL: u.photoURL
+          photoURL: u.photoURL,
+          emailVerified: u.emailVerified ?? true
         };
         setStoredComensalUser(usuarioAuth);
         notifyAuthSubscribers(usuarioAuth);
@@ -319,7 +429,8 @@ export const onAuthChange = (callback: (user: UsuarioAuth | null) => void) => {
         uid: firebaseUser.uid,
         email: firebaseUser.email,
         displayName: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || "Comensal Food Fest",
-        photoURL: firebaseUser.photoURL
+        photoURL: firebaseUser.photoURL,
+        emailVerified: firebaseUser.emailVerified ?? false
       };
       setStoredComensalUser(usuarioAuth);
       callback(usuarioAuth);
