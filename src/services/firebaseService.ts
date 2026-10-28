@@ -356,6 +356,110 @@ export const refreshEmailVerificationStatus = async (): Promise<boolean> => {
   }
 };
 
+// ==========================================
+// 0.C AUTENTICACIÓN EXCLUSIVA DEL COMITÉ SUPERADMINISTRADOR
+// ==========================================
+
+export const loginAdminFirebase = async (
+  email: string,
+  password: string
+): Promise<{
+  success: boolean;
+  uid?: string;
+  email?: string;
+  rol?: string;
+  unauthorized?: boolean;
+  tooManyRequests?: boolean;
+  error?: string;
+}> => {
+  const cleanEmail = email.trim().toLowerCase();
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!cleanEmail || !emailRegex.test(cleanEmail)) {
+    return { success: false, error: "Ingresa un correo institucional o autorizado válido." };
+  }
+  if (!password || password.length < 8) {
+    return { success: false, error: "Credenciales no autorizadas." };
+  }
+
+  try {
+    const cred = await signInWithEmailAndPassword(auth, cleanEmail, password);
+    const u = cred.user;
+
+    if (!u.emailVerified) {
+      try {
+        await sendEmailVerification(u);
+      } catch {}
+      await signOut(auth);
+      setStoredComensalUser(null);
+      notifyAuthSubscribers(null);
+      return {
+        success: false,
+        error: "El correo del administrador aún no está verificado. Hemos enviado un enlace de verificación a tu bandeja."
+      };
+    }
+
+    // Verificar pertenencia en la colección protegida 'admins/{uid}'
+    const adminRef = doc(db, "admins", u.uid);
+    const adminSnap = await getDoc(adminRef);
+
+    if (!adminSnap.exists() || adminSnap.data()?.activo === false) {
+      await logFraudAttempt("ACCESO_ADMIN_NO_AUTORIZADO", cleanEmail, "PORTAL_COMITE");
+      await signOut(auth);
+      setStoredComensalUser(null);
+      notifyAuthSubscribers(null);
+      return {
+        success: false,
+        unauthorized: true,
+        error: "Credenciales no autorizadas para el Comité Organizador."
+      };
+    }
+
+    const data = adminSnap.data();
+    return {
+      success: true,
+      uid: u.uid,
+      email: u.email || cleanEmail,
+      rol: data?.rol || "superadmin"
+    };
+  } catch (error: any) {
+    const code = error.code || "";
+    if (code === "auth/too-many-requests") {
+      return {
+        success: false,
+        tooManyRequests: true,
+        error: "Demasiados intentos fallidos detectados. El acceso ha sido bloqueado temporalmente por seguridad."
+      };
+    }
+    return {
+      success: false,
+      error: "Credenciales no autorizadas. Verifica tu correo y clave maestra del comité."
+    };
+  }
+};
+
+export const verifyAdminSessionFirebase = async (expectedUid: string): Promise<boolean> => {
+  try {
+    const u = auth.currentUser;
+    if (!u || u.uid !== expectedUid || !u.emailVerified) {
+      return false;
+    }
+    const adminSnap = await getDoc(doc(db, "admins", expectedUid));
+    return adminSnap.exists() && adminSnap.data()?.activo !== false;
+  } catch {
+    return false;
+  }
+};
+
+export const logoutAdminFirebase = async (): Promise<void> => {
+  try {
+    setStoredComensalUser(null);
+    await signOut(auth);
+    notifyAuthSubscribers(null);
+  } catch (e) {
+    console.error("Error cerrando sesión de administrador:", e);
+  }
+};
+
 export const resetPasswordFirebase = async (
   email: string
 ): Promise<{ success: boolean; error?: string }> => {

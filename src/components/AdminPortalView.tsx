@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion } from 'motion/react';
+import Swal from 'sweetalert2';
 import { Restaurante, CodigoVoto, EstadisticasEvento, Patrocinador, RegistroCompraPatrocinador } from '../types';
 
 import { QRCodeSVG } from 'qrcode.react';
@@ -37,6 +38,9 @@ import {
   AlertTriangle,
   Receipt,
   Eye,
+  EyeOff,
+  Clock,
+  Mail,
   Calendar,
   DollarSign,
   UserCheck,
@@ -66,7 +70,10 @@ import {
   addPatrocinadorFirebase,
   setPatrocinadorPrincipalFirebase,
   updateRestauranteVideoFirebase,
-  getComprasPatrocinadoresFirebase
+  getComprasPatrocinadoresFirebase,
+  loginAdminFirebase,
+  verifyAdminSessionFirebase,
+  logoutAdminFirebase
 } from '../services/firebaseService';
 import logoBlanco from '../img/logo blanco.svg';
 import logoRed from '../img/logo.svg';
@@ -78,17 +85,48 @@ interface AdminPortalViewProps {
   onExitToPublic: () => void;
 }
 
+const ADMIN_SESSION_KEY = 'foodfest_admin_session';
+const ADMIN_LOCKOUT_KEY = 'foodfest_admin_lockout';
+const ADMIN_IDLE_TIMEOUT_MS = 10 * 60 * 1000; // 10 min de inactividad
+const ADMIN_ABS_TIMEOUT_MS = 4 * 60 * 60 * 1000; // 4 horas máximo de sesión
+const MAX_LOGIN_ATTEMPTS = 5;
+const LOCKOUT_DURATION_MS = 60 * 1000; // 60s de bloqueo tras 5 fallos
+const DISQUALIFY_CODE_SHA256 = '17756315ebd47b7110359fc7b168179bf6f2df3646fcc888bc8aa05c78b38ac1';
+
+interface AdminSessionData {
+  uid: string;
+  email: string;
+  expAbs: number;
+  lastActivity: number;
+}
+
+const computeSha256Hex = async (text: string): Promise<string> => {
+  const data = new TextEncoder().encode(text);
+  const hashBuffer = await window.crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hashBuffer))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+};
+
 export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
   restaurantes,
   patrocinadores = [],
   onRestaurantesUpdated,
   onExitToPublic,
 }) => {
-  // Authentication State
+  // Authentication & Hardened Session State
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
-  const [userInput, setUserInput] = useState<string>('admin');
+  const [isRestoringSession, setIsRestoringSession] = useState<boolean>(true);
+  const [adminSessionEmail, setAdminSessionEmail] = useState<string>('');
+  const [userInput, setUserInput] = useState<string>('');
   const [passwordInput, setPasswordInput] = useState<string>('');
+  const [showPassword, setShowPassword] = useState<boolean>(false);
+  const [isLoggingIn, setIsLoggingIn] = useState<boolean>(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [failedAttempts, setFailedAttempts] = useState<number>(0);
+  const [lockoutSecondsLeft, setLockoutSecondsLeft] = useState<number>(0);
+  const [idleMinutesLeft, setIdleMinutesLeft] = useState<number>(10);
+  const lastActivityWriteRef = useRef<number>(0);
 
   // Active Admin Tab
   const [activeTab, setActiveTab] = useState<'stats' | 'generator' | 'entities' | 'sponsors' | 'gala' | 'architecture' | 'sponsor_audit'>('stats');
@@ -149,7 +187,7 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
   const [isSavingEditRest, setIsSavingEditRest] = useState(false);
   const [editRestSuccess, setEditRestSuccess] = useState(false);
 
-  // Disqualification Security Modal state (Código Secreto: 0987654321)
+  // Disqualification Security Modal state (verificado por hash SHA-256)
   const [disqualifyTargetRest, setDisqualifyTargetRest] = useState<Restaurante | null>(null);
   const [disqualifyCodeInput, setDisqualifyCodeInput] = useState('');
   const [disqualifyReasonInput, setDisqualifyReasonInput] = useState('');
@@ -291,24 +329,292 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
     fetchComprasAudit();
   };
 
-  const handleLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    setAuthError(null);
+  const clearAdminSessionStorage = () => {
+    try {
+      sessionStorage.removeItem(ADMIN_SESSION_KEY);
+    } catch {}
+  };
 
-    const user = userInput.trim().toLowerCase();
-    const pass = passwordInput.trim();
-
-    if ((user === 'admin' || user === 'organizador') && (pass === 'tocuyo2025' || pass === 'admin')) {
-      setIsAuthenticated(true);
-      refreshAllData();
-    } else {
-      setAuthError('Credenciales no autorizadas. Verifica tu usuario y clave de organizador.');
+  const readAdminSessionStorage = (): AdminSessionData | null => {
+    try {
+      const raw = sessionStorage.getItem(ADMIN_SESSION_KEY);
+      if (!raw) return null;
+      return JSON.parse(raw) as AdminSessionData;
+    } catch {
+      return null;
     }
   };
 
-  const handleLogout = () => {
+  const writeAdminSessionStorage = (session: AdminSessionData) => {
+    try {
+      sessionStorage.setItem(ADMIN_SESSION_KEY, JSON.stringify(session));
+    } catch {}
+  };
+
+  const handleForceLogout = useCallback(async (reason?: string, exitToPublic = false) => {
+    clearAdminSessionStorage();
     setIsAuthenticated(false);
+    setAdminSessionEmail('');
     setPasswordInput('');
+    await logoutAdminFirebase();
+    if (reason) {
+      await Swal.fire({
+        title: 'Sesión Finalizada',
+        text: reason,
+        icon: 'warning',
+        iconColor: '#D6A44B',
+        background: '#0F0F0F',
+        color: '#FFF9ED',
+        confirmButtonText: 'Entendido',
+        confirmButtonColor: '#A40B03',
+      });
+    }
+    if (exitToPublic) {
+      onExitToPublic();
+    }
+  }, [onExitToPublic]);
+
+  // Restaurar y verificar sesión al montar
+  useEffect(() => {
+    let mounted = true;
+    const checkInitialSession = async () => {
+      // Revisar bloqueo activo por fuerza bruta
+      try {
+        const lockRaw = sessionStorage.getItem(ADMIN_LOCKOUT_KEY);
+        if (lockRaw) {
+          const until = Number(lockRaw);
+          const diff = Math.ceil((until - Date.now()) / 1000);
+          if (diff > 0) {
+            setLockoutSecondsLeft(diff);
+          } else {
+            sessionStorage.removeItem(ADMIN_LOCKOUT_KEY);
+          }
+        }
+      } catch {}
+
+      const stored = readAdminSessionStorage();
+      if (!stored) {
+        if (mounted) setIsRestoringSession(false);
+        return;
+      }
+
+      const now = Date.now();
+      if (now > stored.expAbs || now - stored.lastActivity > ADMIN_IDLE_TIMEOUT_MS) {
+        clearAdminSessionStorage();
+        await logoutAdminFirebase();
+        if (mounted) setIsRestoringSession(false);
+        return;
+      }
+
+      const valid = await verifyAdminSessionFirebase(stored.uid);
+      if (!mounted) return;
+      if (valid) {
+        writeAdminSessionStorage({ ...stored, lastActivity: now });
+        setAdminSessionEmail(stored.email);
+        setIsAuthenticated(true);
+        refreshAllData();
+      } else {
+        clearAdminSessionStorage();
+        await logoutAdminFirebase();
+      }
+      setIsRestoringSession(false);
+    };
+    checkInitialSession();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  // Cuenta regresiva del bloqueo anti-brute-force
+  useEffect(() => {
+    if (lockoutSecondsLeft <= 0) return;
+    const timer = window.setInterval(() => {
+      setLockoutSecondsLeft((prev) => {
+        if (prev <= 1) {
+          try {
+            sessionStorage.removeItem(ADMIN_LOCKOUT_KEY);
+          } catch {}
+          setFailedAttempts(0);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [lockoutSecondsLeft]);
+
+  // Monitoreo de actividad, timeout de inactividad (10m), expiración absoluta (4h) y cambio de pestaña
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    const registerActivity = () => {
+      const now = Date.now();
+      if (now - lastActivityWriteRef.current < 4000) return;
+      lastActivityWriteRef.current = now;
+      const stored = readAdminSessionStorage();
+      if (stored) {
+        writeAdminSessionStorage({ ...stored, lastActivity: now });
+        setIdleMinutesLeft(10);
+      }
+    };
+
+    const checkSessionIntegrity = async () => {
+      const stored = readAdminSessionStorage();
+      if (!stored) {
+        await handleForceLogout('La sesión del comité fue cerrada.');
+        return;
+      }
+      const now = Date.now();
+      if (now > stored.expAbs) {
+        await handleForceLogout('Se alcanzó el límite máximo de 4 horas de sesión activa del comité.');
+        return;
+      }
+      const idleElapsed = now - stored.lastActivity;
+      if (idleElapsed > ADMIN_IDLE_TIMEOUT_MS) {
+        await handleForceLogout('Sesión cerrada automáticamente tras 10 minutos de inactividad.');
+        return;
+      }
+      const remainingMin = Math.max(1, Math.ceil((ADMIN_IDLE_TIMEOUT_MS - idleElapsed) / 60000));
+      setIdleMinutesLeft(remainingMin);
+    };
+
+    const handleVisibilityChange = async () => {
+      if (document.visibilityState === 'visible') {
+        const stored = readAdminSessionStorage();
+        if (!stored) {
+          await handleForceLogout();
+          return;
+        }
+        const now = Date.now();
+        if (now > stored.expAbs || now - stored.lastActivity > ADMIN_IDLE_TIMEOUT_MS) {
+          await handleForceLogout('Tu sesión del comité expiró mientras la pestaña estaba inactiva.');
+          return;
+        }
+        const stillAdmin = await verifyAdminSessionFirebase(stored.uid);
+        if (!stillAdmin) {
+          await handleForceLogout('La sesión de autenticación cambió en otra pestaña. Por seguridad se cerró el panel.');
+        }
+      }
+    };
+
+    window.addEventListener('mousemove', registerActivity, { passive: true });
+    window.addEventListener('keydown', registerActivity, { passive: true });
+    window.addEventListener('click', registerActivity, { passive: true });
+    window.addEventListener('touchstart', registerActivity, { passive: true });
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    const interval = window.setInterval(checkSessionIntegrity, 15000);
+
+    return () => {
+      window.removeEventListener('mousemove', registerActivity);
+      window.removeEventListener('keydown', registerActivity);
+      window.removeEventListener('click', registerActivity);
+      window.removeEventListener('touchstart', registerActivity);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.clearInterval(interval);
+    };
+  }, [isAuthenticated, handleForceLogout]);
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError(null);
+
+    if (lockoutSecondsLeft > 0 || isLoggingIn) {
+      return;
+    }
+
+    const email = userInput.trim().toLowerCase();
+    const pass = passwordInput;
+
+    if (!email || !pass) {
+      setAuthError('Ingresa el correo institucional y la clave maestra del comité.');
+      return;
+    }
+
+    setIsLoggingIn(true);
+    try {
+      const res = await loginAdminFirebase(email, pass);
+
+      // Si una cuenta ajena intenta entrar al portal, devolver al sitio público sin revelar el panel
+      if (res.unauthorized) {
+        clearAdminSessionStorage();
+        setPasswordInput('');
+        onExitToPublic();
+        return;
+      }
+
+      if (res.success && res.uid) {
+        const now = Date.now();
+        const sessionData: AdminSessionData = {
+          uid: res.uid,
+          email: res.email || email,
+          expAbs: now + ADMIN_ABS_TIMEOUT_MS,
+          lastActivity: now,
+        };
+        writeAdminSessionStorage(sessionData);
+        setAdminSessionEmail(sessionData.email);
+        setFailedAttempts(0);
+        setPasswordInput('');
+        setIsAuthenticated(true);
+        refreshAllData();
+      } else {
+        const nextFailures = failedAttempts + 1;
+        setFailedAttempts(nextFailures);
+        setPasswordInput('');
+
+        if (res.tooManyRequests || nextFailures >= MAX_LOGIN_ATTEMPTS) {
+          const until = Date.now() + LOCKOUT_DURATION_MS;
+          try {
+            sessionStorage.setItem(ADMIN_LOCKOUT_KEY, String(until));
+          } catch {}
+          setLockoutSecondsLeft(Math.ceil(LOCKOUT_DURATION_MS / 1000));
+          const lockMsg = 'Demasiados intentos fallidos. Acceso bloqueado por 60 segundos por seguridad.';
+          setAuthError(lockMsg);
+          await Swal.fire({
+            title: 'Acceso Bloqueado Temporalmente',
+            text: lockMsg,
+            icon: 'error',
+            iconColor: '#A40B03',
+            background: '#0F0F0F',
+            color: '#FFF9ED',
+            confirmButtonText: 'Entendido',
+            confirmButtonColor: '#A40B03',
+          });
+        } else {
+          const msg = res.error || 'Credenciales no autorizadas. Verifica tu correo y clave maestra.';
+          setAuthError(`${msg} (Intento ${nextFailures} de ${MAX_LOGIN_ATTEMPTS})`);
+          await Swal.fire({
+            title: 'Acceso Denegado',
+            text: msg,
+            icon: 'error',
+            iconColor: '#A40B03',
+            background: '#0F0F0F',
+            color: '#FFF9ED',
+            confirmButtonText: 'Reintentar',
+            confirmButtonColor: '#A40B03',
+          });
+        }
+      }
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    clearAdminSessionStorage();
+    setIsAuthenticated(false);
+    setAdminSessionEmail('');
+    setPasswordInput('');
+    await logoutAdminFirebase();
+  };
+
+  const handleExitToPublicSafe = async () => {
+    clearAdminSessionStorage();
+    setIsAuthenticated(false);
+    setAdminSessionEmail('');
+    setPasswordInput('');
+    await logoutAdminFirebase();
+    onExitToPublic();
   };
 
   const handleGenerateCodes = async (e: React.FormEvent) => {
@@ -506,8 +812,9 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
     if (!disqualifyTargetRest) return;
     setDisqualifyError(null);
 
-    // Verificación estricta de código de seguridad: 0987654321
-    if (disqualifyCodeInput.trim() !== '0987654321') {
+    // Verificación criptográfica SHA-256 del código de auditoría
+    const codeHash = await computeSha256Hex(disqualifyCodeInput.trim());
+    if (codeHash !== DISQUALIFY_CODE_SHA256) {
       setDisqualifyError('Código de seguridad incorrecto. Acción denegada por auditoría.');
       return;
     }
@@ -620,16 +927,25 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
     return b.promedioRating - a.promedioRating;
   });
 
+  if (isRestoringSession) {
+    return (
+      <div className="min-h-screen bg-stone-950 text-stone-100 flex flex-col items-center justify-center p-4 space-y-3">
+        <RefreshCw className="w-6 h-6 text-[#A40B03] animate-spin" />
+        <p className="text-xs font-semibold text-stone-400">Verificando credenciales cifradas del Comité...</p>
+      </div>
+    );
+  }
+
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-stone-950 text-stone-100 flex flex-col items-center justify-center p-4">
         <div className="w-full max-w-md mb-6">
           <button
-            onClick={onExitToPublic}
-            className="inline-flex items-center gap-2 text-xs font-semibold text-stone-400 hover:text-[#FFF9ED] transition-colors"
+            onClick={handleExitToPublicSafe}
+            className="inline-flex items-center gap-2 text-xs font-semibold text-stone-400 hover:text-[#FFF9ED] transition-colors cursor-pointer"
           >
             <ArrowLeft className="w-4 h-4 text-[#A40B03]" />
-            <span>Volver a la vista pública de comensales</span>
+            <span>Volver al sitio público</span>
           </button>
         </div>
 
@@ -643,13 +959,17 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
               <div className="h-16 w-auto px-4 py-2 rounded-2xl bg-black border border-[#A40B03]/50 shadow-lg shadow-[#A40B03]/25 flex items-center justify-center mb-2">
                 <img src={logoBlanco} alt="Food Fest 2026" className="h-12 w-auto object-contain" />
               </div>
-              <span className="text-[11px] font-bold text-[#A40B03] uppercase tracking-widest">
-                Comité Organizador • Edición 2026
+              <span className="text-[11px] font-bold text-[#A40B03] uppercase tracking-widest flex items-center gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5" />
+                <span>Acceso Restringido • Comité Organizador 2026</span>
               </span>
             </div>
             <h1 className="text-2xl font-black text-[#FFF9ED] font-['Cabinet_Grotesk',sans-serif]">
               Portal Superadministrador
             </h1>
+            <p className="text-[11px] text-stone-400 leading-relaxed">
+              Autenticación protegida con Firebase Auth + lista blanca de comité y bloqueo automático por intentos.
+            </p>
           </div>
 
           {authError && (
@@ -659,39 +979,76 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
             </div>
           )}
 
-          <form onSubmit={handleLogin} className="space-y-4">
+          {lockoutSecondsLeft > 0 && (
+            <div className="p-3.5 rounded-xl bg-amber-950/70 border border-amber-500/40 text-amber-300 text-xs flex items-center justify-between gap-2">
+              <span className="flex items-center gap-2 font-semibold">
+                <Clock className="w-4 h-4 text-amber-400 shrink-0 animate-pulse" />
+                <span>Protección anti-fuerza bruta activa</span>
+              </span>
+              <span className="font-mono font-black text-amber-400">{lockoutSecondsLeft}s</span>
+            </div>
+          )}
+
+          <form onSubmit={handleLogin} className="space-y-4" autoComplete="off">
             <div>
               <label className="block text-xs font-bold text-stone-300 uppercase mb-1">
-                Usuario de Administrador
+                Correo Autorizado de Administrador
               </label>
-              <input
-                type="text"
-                required
-                value={userInput}
-                onChange={(e) => setUserInput(e.target.value)}
-                placeholder="admin"
-                className="w-full px-4 py-3 rounded-xl bg-black border border-stone-800 text-[#FFF9ED] text-xs sm:text-sm focus:border-[#A40B03] outline-none transition-all"
-              />
+              <div className="relative">
+                <Mail className="w-4 h-4 text-stone-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="email"
+                  required
+                  disabled={lockoutSecondsLeft > 0 || isLoggingIn}
+                  value={userInput}
+                  onChange={(e) => setUserInput(e.target.value)}
+                  placeholder="comite@dominio.com"
+                  className="w-full pl-10 pr-4 py-3 rounded-xl bg-black border border-stone-800 text-[#FFF9ED] text-xs sm:text-sm focus:border-[#A40B03] outline-none transition-all disabled:opacity-50"
+                />
+              </div>
             </div>
             <div>
               <label className="block text-xs font-bold text-stone-300 uppercase mb-1">
-                Contraseña / Clave Maestra
+                Contraseña / Clave Maestra (8+ caracteres)
               </label>
-              <input
-                type="password"
-                required
-                value={passwordInput}
-                onChange={(e) => setPasswordInput(e.target.value)}
-                placeholder="••••••••••••"
-                className="w-full px-4 py-3 rounded-xl bg-black border border-stone-800 text-[#FFF9ED] text-xs sm:text-sm focus:border-[#A40B03] outline-none transition-all"
-              />
+              <div className="relative">
+                <Lock className="w-4 h-4 text-stone-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  required
+                  minLength={8}
+                  disabled={lockoutSecondsLeft > 0 || isLoggingIn}
+                  value={passwordInput}
+                  onChange={(e) => setPasswordInput(e.target.value)}
+                  placeholder="••••••••••••"
+                  className="w-full pl-10 pr-10 py-3 rounded-xl bg-black border border-stone-800 text-[#FFF9ED] text-xs sm:text-sm focus:border-[#A40B03] outline-none transition-all disabled:opacity-50"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  tabIndex={-1}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-500 hover:text-stone-300 cursor-pointer"
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
             </div>
             <button
               type="submit"
-              className="w-full py-3.5 rounded-xl bg-gradient-to-r from-[#A40B03] via-[#BF0E05] to-[#7A0802] hover:shadow-xl hover:shadow-[#A40B03]/30 text-[#FFF9ED] font-extrabold text-xs sm:text-sm border border-[#A40B03]/50 transition-all flex items-center justify-center gap-2"
+              disabled={lockoutSecondsLeft > 0 || isLoggingIn}
+              className="w-full py-3.5 rounded-xl bg-gradient-to-r from-[#A40B03] via-[#BF0E05] to-[#7A0802] hover:shadow-xl hover:shadow-[#A40B03]/30 text-[#FFF9ED] font-extrabold text-xs sm:text-sm border border-[#A40B03]/50 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             >
-              <KeyRound className="w-4 h-4 text-[#FFF9ED]" />
-              <span>Ingresar al Panel de Control</span>
+              {isLoggingIn ? (
+                <>
+                  <RefreshCw className="w-4 h-4 text-[#FFF9ED] animate-spin" />
+                  <span>Verificando Comité en Firebase...</span>
+                </>
+              ) : (
+                <>
+                  <KeyRound className="w-4 h-4 text-[#FFF9ED]" />
+                  <span>Ingresar al Panel de Control</span>
+                </>
+              )}
             </button>
           </form>
         </motion.div>
@@ -762,10 +1119,17 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
               <img src={logoBlanco} alt="Food Fest 2026" className="h-9 w-auto object-contain" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-xl sm:text-2xl font-black text-[#FFF9ED] font-['Cabinet_Grotesk',sans-serif]">
                   Panel Superadministrador <span className="text-[#A40B03]">2026</span>
                 </h1>
+                {adminSessionEmail && (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-950/60 border border-emerald-500/40 text-emerald-300 text-[10px] font-mono font-bold">
+                    <ShieldCheck className="w-3 h-3 text-emerald-400" />
+                    <span>{adminSessionEmail}</span>
+                    <span className="text-stone-400">• {idleMinutesLeft}m</span>
+                  </span>
+                )}
               </div>
               <p className="text-xs text-stone-400 mt-0.5">
                 Control de lotes, auditoría antifraude en tiempo real y gestión del Food Fest.
@@ -774,13 +1138,13 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
           </div>
 
           <div className="flex items-center gap-2 self-end sm:self-auto">
-            <button onClick={refreshAllData} className="p-2.5 rounded-xl bg-black text-stone-300 hover:text-[#FFF9ED] border border-stone-800 hover:border-[#A40B03]/40 transition-colors">
+            <button onClick={refreshAllData} className="p-2.5 rounded-xl bg-black text-stone-300 hover:text-[#FFF9ED] border border-stone-800 hover:border-[#A40B03]/40 transition-colors cursor-pointer" title="Refrescar datos">
               <RefreshCw className="w-4 h-4" />
             </button>
-            <button onClick={handleLogout} className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-black text-stone-400 hover:text-red-400 border border-stone-800 transition-colors text-xs font-semibold">
+            <button onClick={handleLogout} className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-black text-stone-400 hover:text-red-400 border border-stone-800 transition-colors text-xs font-semibold cursor-pointer">
               <LogOut className="w-4 h-4" /> <span>Cerrar Sesión</span>
             </button>
-            <button onClick={onExitToPublic} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-[#A40B03] text-[#FFF9ED] text-xs font-bold hover:bg-[#BF0E05] transition-all shadow-md border border-[#FFF9ED]/20">
+            <button onClick={handleExitToPublicSafe} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-[#A40B03] text-[#FFF9ED] text-xs font-bold hover:bg-[#BF0E05] transition-all shadow-md border border-[#FFF9ED]/20 cursor-pointer" title="Cierra la sesión de comité y regresa al sitio público">
               <ArrowLeft className="w-4 h-4 text-[#FFF9ED]" /> <span>Sitio Público</span>
             </button>
           </div>

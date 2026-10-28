@@ -1,0 +1,85 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isCommitteeAdmin() {
+      return isVerifiedUser()
+        && exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+        && get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.activo != false;
+    }
+
+    // 1. LISTA BLANCA DEL COMITÉ ORGANIZADOR (solo lectura propia; se administra desde Firebase Console)
+    match /admins/{adminUid} {
+      allow get: if isSignedIn() && request.auth.uid == adminUid;
+      allow list, write: if false;
+    }
+
+    // 2. RESTAURANTES PARTICIPANTES
+    match /restaurantes/{restauranteId} {
+      allow read: if true;
+      allow create, delete: if isCommitteeAdmin();
+      // El comité puede editar todo; un comensal verificado solo actualiza conteo/promedio dentro de la transacción de voto
+      allow update: if isCommitteeAdmin()
+        || (isVerifiedUser()
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['votosCount', 'promedioRating']));
+    }
+
+    // 3. PATROCINADORES OFICIALES
+    match /patrocinadores/{patrocinadorId} {
+      allow read: if true;
+      allow write: if isCommitteeAdmin();
+    }
+
+    // 4. CÓDIGOS ÚNICOS DE MESA (Nadie del público puede listar los códigos; solo consultar 1 código exacto al votar)
+    match /codigos/{codigoId} {
+      allow get: if isVerifiedUser() || isCommitteeAdmin();
+      allow list, create, delete: if isCommitteeAdmin();
+      allow update: if isCommitteeAdmin()
+        || (isVerifiedUser()
+            && resource.data.usado == false
+            && request.resource.data.usado == true);
+    }
+
+    // 5. VOTOS OFICIALES AUDITADOS
+    match /votos/{votoId} {
+      allow read, update, delete: if isCommitteeAdmin();
+      allow create: if isVerifiedUser();
+    }
+
+    // 6. REGISTRO DE UNICIDAD (1 VOTO POR USUARIO/CORREO POR RESTAURANTE)
+    match /votos_usuarios/{registroId} {
+      allow get: if isSignedIn();
+      allow list, update, delete: if isCommitteeAdmin();
+      allow create: if isVerifiedUser()
+        && !exists(/databases/$(database)/documents/votos_usuarios/$(registroId));
+    }
+
+    // 7. ESTADÍSTICAS GLOBALES DEL EVENTO
+    match /estadisticas/{docId} {
+      allow read: if true;
+      allow create, update: if isVerifiedUser() || isCommitteeAdmin();
+      allow delete: if isCommitteeAdmin();
+    }
+
+    // 8. BITÁCORA DE AUDITORÍA ANTIFRAUDE
+    match /fraud_logs/{logId} {
+      allow read, update, delete: if isCommitteeAdmin();
+      allow create: if isSignedIn();
+    }
+
+    // 9. AUDITORÍA DE COMPRAS EN PATROCINADORES
+    match /compras_patrocinadores/{compraId} {
+      allow read, update, delete: if isCommitteeAdmin();
+      allow create: if true;
+    }
+  }
+}

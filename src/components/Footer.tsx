@@ -1,12 +1,12 @@
 import React from 'react';
-import { Flame, ShieldCheck, Heart, MapPin, Lock } from 'lucide-react';
+import { ShieldCheck, Heart, MapPin } from 'lucide-react';
 import logoBlanco from '../img/logo blanco.svg';
 
 interface FooterProps {
-  onOpenAdmin: () => void;
+  onOpenAdmin?: () => void;
 }
 
-export const Footer: React.FC<FooterProps> = ({ onOpenAdmin }) => {
+export const Footer: React.FC<FooterProps> = () => {
   return (
     <footer className="bg-black border-t border-[#A40B03]/20 py-12 text-stone-400 text-xs">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8">
@@ -51,16 +51,6 @@ export const Footer: React.FC<FooterProps> = ({ onOpenAdmin }) => {
               <span>Hecho con orgullo y tradición tocuyana</span>
               <Heart className="w-3.5 h-3.5 text-[#A40B03] fill-[#A40B03]" />
             </div>
-
-            {/* Discreet Admin Portal Access Link */}
-            <button
-              onClick={onOpenAdmin}
-              className="inline-flex items-center gap-1 text-stone-400 hover:text-[#FFF9ED] hover:border-[#A40B03]/50 transition-colors px-2 py-1 rounded-lg border border-transparent"
-              title="Portal de Gestión para el Comité Organizador"
-            >
-              <Lock className="w-3 h-3 text-[#A40B03]" />
-              <span></span>
-            </button>
           </div>
         </div>
 

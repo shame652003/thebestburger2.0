@@ -53,12 +53,13 @@ export default function App() {
     setPatrocinadores(dataPatrocinadores);
   };
 
-  // Sync state from URL query parameters (e.g. ?restaurante=id, ?patrocinador=id o ?view=admin)
+  // Sync state from URL query parameters (e.g. ?restaurante=id, ?patrocinador=id o ruta secreta ?comite)
   const syncFromUrl = () => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       const restParam = params.get('restaurante');
       const viewParam = params.get('view');
+      const isComiteRoute = params.has('comite') || viewParam === 'comite';
       const sponsorParam = params.get('patrocinador') || (viewParam === 'patrocinador' ? params.get('id') : null);
 
       if (sponsorParam) {
@@ -69,11 +70,15 @@ export default function App() {
         setSelectedRestaurantId(restParam);
         setCurrentView('restaurant');
         setSelectedSponsorId(null);
-      } else if (viewParam === 'admin') {
+      } else if (isComiteRoute) {
         setCurrentView('admin');
         setSelectedRestaurantId(null);
         setSelectedSponsorId(null);
       } else {
+        // Si alguien escribe ?view=admin u otra ruta no autorizada, limpiar URL y llevar al inicio público
+        if (viewParam === 'admin') {
+          window.history.replaceState({}, '', window.location.pathname);
+        }
         setCurrentView('home');
         setSelectedRestaurantId(null);
         setSelectedSponsorId(null);
@@ -137,7 +142,7 @@ export default function App() {
 
   const navigateToAdmin = () => {
     if (typeof window !== 'undefined') {
-      window.history.pushState({}, '', `${window.location.pathname}?view=admin`);
+      window.history.pushState({}, '', `${window.location.pathname}?comite`);
     }
     setSelectedRestaurantId(null);
     setCurrentView('admin');
