@@ -18,7 +18,8 @@ import {
   getPatrocinadoresFirebase,
   loginWithGoogle,
   logoutFirebase,
-  onAuthChange 
+  onAuthChange,
+  subscribeStatsFirebase
 } from './services/firebaseService';
 
 export type AppView = 'home' | 'restaurant' | 'admin' | 'sponsor_checkin';
@@ -95,6 +96,11 @@ export default function App() {
       setCurrentUser(user);
     });
 
+    // Escucha en tiempo real del estado de estadísticas y revelación de la gala
+    const unsubscribeStats = subscribeStatsFirebase((newStats) => {
+      setStats(newStats);
+    });
+
     // Handle browser Back / Forward buttons
     const handlePopState = () => {
       syncFromUrl();
@@ -104,6 +110,7 @@ export default function App() {
     return () => {
       window.removeEventListener('popstate', handlePopState);
       unsubscribeAuth();
+      unsubscribeStats();
     };
   }, []);
 
@@ -331,9 +338,10 @@ export default function App() {
             onSelectRestaurant={navigateToRestaurant}
           />
 
-          {/* 3. Anonymous Real-Time Leaderboard (Clients Only: strictly anonymous) */}
+          {/* 3. Real-Time Leaderboard (Anonymous during contest; Revealed when admin finishes gala) */}
           <LeaderboardAnonimo
             restaurantes={restaurantes}
+            resultadosRevelados={Boolean(stats.resultadosRevelados)}
           />
 
           {/* 4. Official Sponsors */}

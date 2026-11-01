@@ -12,7 +12,8 @@ import {
   orderBy,
   limit,
   increment,
-  updateDoc
+  updateDoc,
+  onSnapshot
 } from "firebase/firestore";
 import { db, storage, auth, googleProvider } from "../../firebase"; 
 import { 
@@ -848,7 +849,11 @@ export const getStatsFirebase = async (): Promise<EstadisticasEvento> => {
     const statsRef = doc(db, "estadisticas", STATS_DOC_ID);
     const docSnap = await getDoc(statsRef);
     if (docSnap.exists()) {
-      return docSnap.data() as EstadisticasEvento;
+      const data = docSnap.data() as EstadisticasEvento;
+      if (typeof localStorage !== 'undefined' && data.resultadosRevelados !== undefined) {
+        localStorage.setItem('foodfest_resultados_revelados', JSON.stringify(data.resultadosRevelados));
+      }
+      return data;
     } else {
       // Valor por defecto si no existe
       const defaultStats: EstadisticasEvento = {
@@ -856,14 +861,75 @@ export const getStatsFirebase = async (): Promise<EstadisticasEvento> => {
         totalCodigosGenerados: 0,
         totalCodigosUsados: 0,
         promedioGlobal: 0,
-        intentosFraudeBloqueados: 0
+        intentosFraudeBloqueados: 0,
+        resultadosRevelados: false
       };
       await setDoc(statsRef, defaultStats);
       return defaultStats;
     }
   } catch (error) {
     console.error("Error obteniendo stats: ", error);
-    return { totalVotos: 0, totalCodigosGenerados: 0, totalCodigosUsados: 0, promedioGlobal: 0, intentosFraudeBloqueados: 0 };
+    const cached = typeof localStorage !== 'undefined' 
+      ? localStorage.getItem('foodfest_resultados_revelados') === 'true'
+      : false;
+    return { 
+      totalVotos: 0, 
+      totalCodigosGenerados: 0, 
+      totalCodigosUsados: 0, 
+      promedioGlobal: 0, 
+      intentosFraudeBloqueados: 0,
+      resultadosRevelados: cached
+    };
+  }
+};
+
+/**
+ * Escucha en tiempo real las estadísticas globales y el estado de revelación de la gala.
+ * Permite que todas las pantallas y usuarios conectados actualicen el Leaderboard automáticamente
+ * en el momento exacto en que el comité presione "Revelar Resultados".
+ */
+export const subscribeStatsFirebase = (callback: (stats: EstadisticasEvento) => void) => {
+  try {
+    const statsRef = doc(db, "estadisticas", STATS_DOC_ID);
+    return onSnapshot(statsRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data() as EstadisticasEvento;
+        if (typeof localStorage !== 'undefined' && data.resultadosRevelados !== undefined) {
+          localStorage.setItem('foodfest_resultados_revelados', JSON.stringify(data.resultadosRevelados));
+        }
+        callback(data);
+      }
+    }, (error) => {
+      console.warn("Advertencia en escucha de estadísticas en tiempo real:", error);
+    });
+  } catch (e) {
+    console.error("Error suscribiendo a estadísticas:", e);
+    return () => {};
+  }
+};
+
+/**
+ * Control del Comité Organizador para revelar u ocultar los resultados oficiales al público.
+ */
+export const setResultadosReveladosFirebase = async (revelado: boolean): Promise<{ success: boolean; error?: string }> => {
+  try {
+    const statsRef = doc(db, "estadisticas", STATS_DOC_ID);
+    await setDoc(statsRef, { 
+      resultadosRevelados: revelado,
+      fechaRevelacion: new Date().toISOString()
+    }, { merge: true });
+    
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('foodfest_resultados_revelados', JSON.stringify(revelado));
+    }
+    return { success: true };
+  } catch (e: any) {
+    console.error("Error actualizando estado de revelación en Firestore:", e);
+    // Aseguramos persistencia local de respaldo
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('foodfest_resultados_revelados', JSON.stringify(revelado));
+    }
+    return { success: false, error: e.message || 'Error al persistir en Firestore' };
   }
 };
 
@@ -994,14 +1060,41 @@ export const setPatrocinadorPrincipalFirebase = async (patrocinadorId: string): 
     const snapshot = await getDocs(q);
     const batch = writeBatch(db);
     
-    snapshot.forEach((docSnap) => {
-      const isSelected = docSnap.id === patrocinadorId;
-      const data = docSnap.data();
-      batch.update(docSnap.ref, {
-        esPrincipal: isSelected,
-        tipo: isSelected ? 'Principal' : (data.tipo === 'Principal' ? 'Patrocinador Oficial' : (data.tipo || 'Patrocinador Oficial'))
-      });
+    const targetDoc = snapshot.docs.find(d => d.id === patrocinadorId);
+    if (!targetDoc) return false;
+
+    const targetData = targetDoc.data();
+    const isTargetPrincipal = Boolean(
+      targetData.esPrincipal || targetData.tipo === 'Patrocinador Oficial Principal' || targetData.tipo === 'Principal'
+    );
+
+    // Other current principals
+    const otherPrincipals = snapshot.docs.filter(d => {
+      if (d.id === patrocinadorId) return false;
+      const data = d.data();
+      return Boolean(data.esPrincipal || data.tipo === 'Patrocinador Oficial Principal' || data.tipo === 'Principal');
     });
+
+    if (isTargetPrincipal) {
+      // Toggle off: demote to 'Patrocinador Oficial'
+      batch.update(targetDoc.ref, {
+        esPrincipal: false,
+        tipo: 'Patrocinador Oficial'
+      });
+    } else {
+      // If there are already 2 other principals, demote the oldest/last one so we maintain at most 2 principals
+      if (otherPrincipals.length >= 2) {
+        const toDemote = otherPrincipals[otherPrincipals.length - 1];
+        batch.update(toDemote.ref, {
+          esPrincipal: false,
+          tipo: 'Patrocinador Oficial'
+        });
+      }
+      batch.update(targetDoc.ref, {
+        esPrincipal: true,
+        tipo: 'Patrocinador Oficial Principal'
+      });
+    }
     
     await batch.commit();
     return true;

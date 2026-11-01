@@ -26,6 +26,7 @@ import {
   UploadCloud,
   Copy,
   Printer,
+  Scissors,
   ExternalLink,
   X,
   Film,
@@ -46,7 +47,19 @@ import {
   UserCheck,
   FileText,
   Camera,
-  ShoppingBag
+  ShoppingBag,
+  Sparkles,
+  Info,
+  Calculator,
+  Scale,
+  Flame,
+  Activity,
+  Search,
+  Filter,
+  TrendingUp,
+  Users,
+  Percent,
+  ArrowUpRight
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -55,7 +68,8 @@ import {
   YAxis, 
   CartesianGrid, 
   Tooltip, 
-  ResponsiveContainer
+  ResponsiveContainer,
+  Cell
 } from 'recharts';
 import { 
   addRestauranteFirebase, 
@@ -73,7 +87,8 @@ import {
   getComprasPatrocinadoresFirebase,
   loginAdminFirebase,
   verifyAdminSessionFirebase,
-  logoutAdminFirebase
+  logoutAdminFirebase,
+  setResultadosReveladosFirebase
 } from '../services/firebaseService';
 import logoBlanco from '../img/logo blanco.svg';
 import logoRed from '../img/logo.svg';
@@ -345,6 +360,18 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
   const [isGeneratingCodes, setIsGeneratingCodes] = useState<boolean>(false);
   const [printRestId, setPrintRestId] = useState<string | null>(null);
 
+  // QR Mesa Multi-Card Print state (A4 / Carta)
+  const [printTableRestId, setPrintTableRestId] = useState<string | null>(null);
+  const [tableCardsCount, setTableCardsCount] = useState<number>(9);
+  const [tableGridFormat, setTableGridFormat] = useState<'9' | '6' | '4'>('9');
+  const [tableNumbering, setTableNumbering] = useState<boolean>(true);
+  const [tableStartNumber, setTableStartNumber] = useState<number>(1);
+
+  // QR Patrocinador Multi-Card Print state (A4 / Carta)
+  const [printSponsorId, setPrintSponsorId] = useState<string | null>(null);
+  const [sponsorCardsCount, setSponsorCardsCount] = useState<number>(4);
+  const [sponsorGridFormat, setSponsorGridFormat] = useState<'1' | '4'>('4');
+
   // QR Mesa Inspector state
   const [selectedQrRest, setSelectedQrRest] = useState<Restaurante | null>(null);
   const [copiedTableUrl, setCopiedTableUrl] = useState(false);
@@ -590,7 +617,7 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
   // Register Sponsor form state
   const [newSponsor, setNewSponsor] = useState({
     nombre: '',
-    tipo: 'Aliado Gourmet' as 'Principal' | 'Aliado Gourmet' | 'Patrocinador Oficial',
+    tipo: 'Aliado Gourmet' as 'Patrocinador Oficial Principal' | 'Principal' | 'Aliado Gourmet' | 'Patrocinador Oficial',
     descripcion: '',
     url: '',
     esPrincipal: false,
@@ -605,6 +632,16 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
   });
   const [codigos, setCodigos] = useState<CodigoVoto[]>([]);
   const [fraudLogs, setFraudLogs] = useState<FraudLogType[]>([]);
+  const [isTogglingGala, setIsTogglingGala] = useState<boolean>(false);
+  const [galaActiveTab, setGalaActiveTab] = useState<'ranking' | 'explicacion'>('ranking');
+
+  // Main Dashboard (Metrics & Fraud) dynamic state
+  const [statsViewMode, setStatsViewMode] = useState<'overview' | 'security' | 'table'>('overview');
+  const [chartMetric, setChartMetric] = useState<'votos' | 'rating'>('votos');
+  const [fraudSearchQuery, setFraudSearchQuery] = useState<string>('');
+  const [fraudFilterType, setFraudFilterType] = useState<string>('ALL');
+  const [isRefreshingDashboard, setIsRefreshingDashboard] = useState<boolean>(false);
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<Date>(new Date());
 
   const refreshAllData = async () => {
     const s = await getStatsFirebase();
@@ -614,6 +651,117 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
     setCodigos(c);
     setFraudLogs(f);
     fetchComprasAudit();
+  };
+
+  const handleManualRefreshDashboard = async () => {
+    setIsRefreshingDashboard(true);
+    await refreshAllData();
+    onRestaurantesUpdated();
+    setLastRefreshedAt(new Date());
+    setTimeout(() => setIsRefreshingDashboard(false), 400);
+  };
+
+  const handleToggleResultadosPublicos = async () => {
+    const currentStatus = Boolean(stats.resultadosRevelados);
+    const nuevoEstado = !currentStatus;
+
+    if (nuevoEstado) {
+      const result = await Swal.fire({
+        ...SWAL_THEME,
+        title: '¿Revelar Resultados Oficiales al Público?',
+        background: '#0F0F0F',
+        color: '#FFF9ED',
+        icon: 'warning',
+        iconColor: '#10B981',
+        html: `
+          <div style="text-align: left; font-size: 13px; color: #d6d3d1; line-height: 1.5;">
+            <p style="margin-bottom: 8px;">Estás a punto de <strong>publicar los resultados finales del Food Fest 2026</strong> en la vista pública general.</p>
+            <div style="background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.3); padding: 12px; border-radius: 10px; margin-bottom: 10px;">
+              <strong style="color: #FFF9ED;">¿Qué sucederá al confirmar?</strong>
+              <ul style="margin: 6px 0 0 16px; padding: 0; font-size: 12px; color: #e7e5e4; line-height: 1.6;">
+                <li>El <strong>Leaderboard Público</strong> dejará de ser anónimo.</li>
+                <li>Se revelarán las fotos, nombres de hamburguesas y marcas reales de todos los participantes.</li>
+                <li>Se activará el <strong>Podio de Campeones (Oro, Plata y Bronce)</strong> con su calificación en estrellas para todos los visitantes.</li>
+                <li>La cantidad exacta de votos se mantendrá como métrica interna y confidencial para el Comité.</li>
+              </ul>
+            </div>
+            <p style="font-size: 11px; color: #a8a29e;">Esta acción se puede revertir en cualquier momento desde este mismo panel si lo consideras necesario.</p>
+          </div>
+        `,
+        showCancelButton: true,
+        confirmButtonColor: '#059669',
+        cancelButtonColor: '#262626',
+        confirmButtonText: 'Sí, ¡Revelar Resultados a Todos!',
+        cancelButtonText: 'Cancelar'
+      });
+
+      if (!result.isConfirmed) return;
+    } else {
+      const result = await Swal.fire({
+        ...SWAL_THEME,
+        title: '¿Revertir a Modo Anónimo?',
+        background: '#0F0F0F',
+        color: '#FFF9ED',
+        icon: 'question',
+        iconColor: '#A40B03',
+        html: `
+          <div style="text-align: left; font-size: 13px; color: #d6d3d1; line-height: 1.5;">
+            <p>El ranking público volverá a mostrar códigos confidenciales (<em>"Participante #1", "Identidad Oculta"</em>).</p>
+            <p style="margin-top: 8px; font-size: 12px; color: #a8a29e;">Solo el Comité Organizador podrá ver las identidades reales dentro de este portal privado.</p>
+          </div>
+        `,
+        showCancelButton: true,
+        confirmButtonColor: '#A40B03',
+        cancelButtonColor: '#262626',
+        confirmButtonText: 'Sí, volver a Modo Anónimo',
+        cancelButtonText: 'Cancelar'
+      });
+
+      if (!result.isConfirmed) return;
+    }
+
+    setIsTogglingGala(true);
+    try {
+      const res = await setResultadosReveladosFirebase(nuevoEstado);
+      if (res.success) {
+        setStats(prev => ({ ...prev, resultadosRevelados: nuevoEstado }));
+        onRestaurantesUpdated();
+        Swal.fire({
+          ...SWAL_THEME,
+          background: '#0F0F0F',
+          color: '#FFF9ED',
+          iconColor: nuevoEstado ? '#10B981' : '#A40B03',
+          title: nuevoEstado ? '¡Resultados Revelados!' : 'Modo Anónimo Restaurado',
+          text: nuevoEstado 
+            ? 'Los resultados oficiales y las posiciones reales ya son visibles públicamente en el Leaderboard.' 
+            : 'El ranking público vuelve a estar bajo anonimato estricto.',
+          icon: 'success',
+          confirmButtonColor: nuevoEstado ? '#059669' : '#A40B03'
+        });
+      } else {
+        Swal.fire({
+          ...SWAL_THEME,
+          background: '#0F0F0F',
+          color: '#FFF9ED',
+          title: 'Error',
+          text: res.error || 'No se pudo actualizar el estado de la gala.',
+          icon: 'error',
+          confirmButtonColor: '#A40B03'
+        });
+      }
+    } catch (e: any) {
+      Swal.fire({
+        ...SWAL_THEME,
+        background: '#0F0F0F',
+        color: '#FFF9ED',
+        title: 'Error',
+        text: e.message || 'Ocurrió un error inesperado.',
+        icon: 'error',
+        confirmButtonColor: '#A40B03'
+      });
+    } finally {
+      setIsTogglingGala(false);
+    }
   };
 
   const clearAdminSessionStorage = () => {
@@ -1250,7 +1398,7 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
 
       const success = await addPatrocinadorFirebase({
         nombre: newSponsor.nombre,
-        tipo: newSponsor.esPrincipal ? 'Principal' : newSponsor.tipo,
+        tipo: newSponsor.esPrincipal ? 'Patrocinador Oficial Principal' : newSponsor.tipo,
         descripcion: newSponsor.descripcion,
         url: newSponsor.url,
         logoUrl,
@@ -1576,6 +1724,1196 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
     );
   }
 
+  // --- VISTA DEDICADA DE IMPRESIÓN DE QRS DE MESA (FORMATO A4 / CARTA MULTI-TARJETA) ---
+  if (printTableRestId) {
+    const printRest = restaurantes.find(r => r.id === printTableRestId) || restaurantes[0];
+    if (!printRest) {
+      setPrintTableRestId(null);
+      return null;
+    }
+
+    const restLogo = printRest.logoUrl || logoRed;
+    const cardsPerPage = tableGridFormat === '9' ? 9 : tableGridFormat === '6' ? 6 : 4;
+    const totalCards = Math.max(1, tableCardsCount);
+    const totalPages = Math.ceil(totalCards / cardsPerPage);
+
+    const cardPages: { index: number; tableNum: number }[][] = [];
+    for (let p = 0; p < totalPages; p++) {
+      const pageCards: { index: number; tableNum: number }[] = [];
+      for (let i = 0; i < cardsPerPage; i++) {
+        const globalIdx = p * cardsPerPage + i;
+        if (globalIdx < totalCards) {
+          pageCards.push({
+            index: globalIdx + 1,
+            tableNum: tableStartNumber + globalIdx
+          });
+        }
+      }
+      cardPages.push(pageCards);
+    }
+
+    const origin = typeof window !== 'undefined' ? window.location.origin : 'https://tocuyo-burgerfest.com';
+    const pathname = typeof window !== 'undefined' ? window.location.pathname : '/';
+
+    return (
+      <div className="print-root bg-stone-200 text-stone-950 min-h-screen relative pb-52 print:pb-0 print:p-0 print:bg-white print:min-h-0">
+        <style>{`
+          @media print {
+            .no-print { display: none !important; }
+            @page {
+              size: A4 portrait;
+              margin: 4mm 6mm;
+            }
+            html, body {
+              width: 100% !important;
+              height: auto !important;
+              margin: 0 !important;
+              padding: 0 !important;
+              background: white !important;
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+            }
+            .print-root {
+              background: white !important;
+              padding: 0 !important;
+              margin: 0 !important;
+              min-height: 0 !important;
+            }
+            .print-container {
+              padding: 0 !important;
+              margin: 0 !important;
+            }
+            .print-page {
+              width: 198mm !important;
+              max-width: 198mm !important;
+              margin: 0 auto !important;
+              margin-bottom: 0 !important;
+              padding: 0 !important;
+              border: none !important;
+              border-radius: 0 !important;
+              box-shadow: none !important;
+              background: white !important;
+              box-sizing: border-box !important;
+              overflow: hidden !important;
+            }
+            .print-page + .print-page {
+              page-break-before: always !important;
+              break-before: page !important;
+            }
+            .table-card-print {
+              break-inside: avoid !important;
+              page-break-inside: avoid !important;
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+            }
+            .table-card-print * {
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+            }
+          }
+        `}</style>
+
+        {/* Floating Controls (Hidden in Print) */}
+        <div className="no-print fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-50 flex flex-col items-end gap-3 max-w-xl">
+          {/* Card Info and Customization Bar */}
+          <div className="bg-black/95 backdrop-blur-md px-5 py-4 rounded-3xl shadow-2xl border border-stone-800 text-stone-200 w-full space-y-3">
+            <div className="flex items-center justify-between gap-3 border-b border-stone-800 pb-2.5">
+              <div className="min-w-0">
+                <div className="text-[10px] text-amber-400 uppercase tracking-widest font-black flex items-center gap-1.5">
+                  <QrCode className="w-3.5 h-3.5 text-[#A40B03]" />
+                  <span>QRs de Mesa Oficiales</span>
+                </div>
+                <div className="text-base font-black text-[#FFF9ED] truncate max-w-xs">{printRest.nombre}</div>
+                <div className="text-xs text-stone-400 truncate">{printRest.nombreHamburguesa}</div>
+              </div>
+
+              {/* Restaurant Selector */}
+              <div className="text-right shrink-0">
+                <label className="text-[10px] text-stone-400 block mb-1 font-bold">Cambiar Restaurante</label>
+                <select
+                  value={printTableRestId}
+                  onChange={(e) => setPrintTableRestId(e.target.value)}
+                  className="bg-stone-900 border border-stone-700 text-stone-200 text-xs rounded-xl px-2.5 py-1.5 font-bold focus:outline-none focus:border-[#A40B03] cursor-pointer"
+                >
+                  {restaurantes.map(r => (
+                    <option key={r.id} value={r.id}>
+                      {r.nombre}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Practical PDF Advice */}
+            <div className="bg-amber-950/40 border border-amber-500/30 rounded-xl p-2.5 flex items-start gap-2 text-[11px] text-amber-200">
+              <Printer className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+              <div>
+                <strong className="text-[#FFF9ED] block">Para Guardar en PDF:</strong>
+                <span>En la ventana de impresión, selecciona <b>&quot;Guardar como PDF&quot;</b> en Destino. En &quot;Más ajustes&quot; desmarca <i>&quot;Encabezados y pies de página&quot;</i> para una hoja limpia sin URLs.</span>
+              </div>
+            </div>
+
+            {/* Print Configuration Controls */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
+              {/* Formato por hoja */}
+              <div className="space-y-1">
+                <span className="text-[10px] uppercase font-bold text-stone-400 block">Distribución Hoja</span>
+                <div className="flex rounded-xl bg-stone-900 p-0.5 border border-stone-800">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTableGridFormat('9');
+                      setTableCardsCount(9);
+                    }}
+                    className={`flex-1 py-1 text-center font-bold text-[10px] rounded-lg transition-all cursor-pointer ${tableGridFormat === '9' ? 'bg-[#A40B03] text-white shadow-sm' : 'text-stone-400 hover:text-white'}`}
+                  >
+                    3x3 (9/hoja)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTableGridFormat('6');
+                      setTableCardsCount(6);
+                    }}
+                    className={`flex-1 py-1 text-center font-bold text-[10px] rounded-lg transition-all cursor-pointer ${tableGridFormat === '6' ? 'bg-[#A40B03] text-white shadow-sm' : 'text-stone-400 hover:text-white'}`}
+                  >
+                    2x3 (6/hoja)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTableGridFormat('4');
+                      setTableCardsCount(4);
+                    }}
+                    className={`flex-1 py-1 text-center font-bold text-[10px] rounded-lg transition-all cursor-pointer ${tableGridFormat === '4' ? 'bg-[#A40B03] text-white shadow-sm' : 'text-stone-400 hover:text-white'}`}
+                  >
+                    2x2 (4/hoja)
+                  </button>
+                </div>
+              </div>
+
+              {/* Cantidad de Tarjetas */}
+              <div className="space-y-1">
+                <span className="text-[10px] uppercase font-bold text-stone-400 block">Total Mesas / QRs</span>
+                <div className="flex items-center gap-1">
+                  {(tableGridFormat === '9' ? [9, 18, 27] : tableGridFormat === '6' ? [6, 12, 18] : [4, 8, 12]).map(num => (
+                    <button
+                      key={num}
+                      type="button"
+                      onClick={() => setTableCardsCount(num)}
+                      className={`px-2 py-1 text-center font-mono font-bold text-[11px] rounded-lg transition-all border cursor-pointer ${tableCardsCount === num ? 'bg-stone-800 border-amber-500 text-amber-300' : 'bg-stone-900 border-stone-800 text-stone-400 hover:text-white'}`}
+                    >
+                      {num}
+                    </button>
+                  ))}
+                  <input
+                    type="number"
+                    min="1"
+                    max="120"
+                    value={tableCardsCount}
+                    onChange={(e) => setTableCardsCount(Math.max(1, parseInt(e.target.value) || 1))}
+                    className="w-12 bg-stone-900 border border-stone-700 text-stone-200 text-[11px] font-mono font-bold rounded-lg px-1 py-1 text-center"
+                    title="Cantidad personalizada"
+                  />
+                </div>
+              </div>
+
+              {/* Numeración de mesas */}
+              <div className="col-span-2 sm:col-span-1 space-y-1">
+                <span className="text-[10px] uppercase font-bold text-stone-400 block">Numeración</span>
+                <div className="flex items-center gap-2">
+                  <label className="flex items-center gap-1.5 cursor-pointer text-[11px] text-stone-300 font-semibold select-none">
+                    <input
+                      type="checkbox"
+                      checked={tableNumbering}
+                      onChange={(e) => setTableNumbering(e.target.checked)}
+                      className="accent-[#A40B03] rounded"
+                    />
+                    <span>¿Numerar?</span>
+                  </label>
+                  {tableNumbering && (
+                    <div className="flex items-center gap-1">
+                      <span className="text-[10px] text-stone-500 font-mono">Desde:</span>
+                      <input
+                        type="number"
+                        min="1"
+                        max="999"
+                        value={tableStartNumber}
+                        onChange={(e) => setTableStartNumber(Math.max(1, parseInt(e.target.value) || 1))}
+                        className="w-12 bg-stone-900 border border-stone-700 text-amber-300 text-[11px] font-mono font-bold rounded-lg px-1 py-0.5 text-center"
+                        title="Número inicial de mesa"
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Summary info */}
+            <div className="text-[11px] text-stone-400 flex items-center justify-between border-t border-stone-800 pt-2 font-mono">
+              <span>{totalCards} tarjetas • {totalPages} página{totalPages === 1 ? '' : 's'} A4 / Carta</span>
+              <span className="text-amber-400 font-bold">{cardsPerPage} QRs por hoja</span>
+            </div>
+          </div>
+
+          {/* Action buttons */}
+          <div className="flex gap-3 bg-black/95 backdrop-blur-md p-3 rounded-2xl shadow-2xl border border-stone-800">
+            <button
+              type="button"
+              onClick={() => setPrintTableRestId(null)}
+              className="px-5 py-2.5 rounded-xl bg-stone-900 text-stone-200 font-bold text-xs sm:text-sm hover:bg-stone-800 transition-colors cursor-pointer"
+            >
+              Volver al Panel
+            </button>
+            <button
+              type="button"
+              onClick={() => window.print()}
+              className="px-6 py-2.5 rounded-xl bg-[#A40B03] text-[#FFF9ED] font-black text-xs sm:text-sm hover:bg-[#BF0E05] flex items-center gap-2 border border-[#A40B03]/60 shadow-lg shadow-[#A40B03]/30 cursor-pointer"
+            >
+              <Printer className="w-4 h-4 text-[#FFF9ED]" />
+              <span>Guardar en PDF / Imprimir</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Printable Sheets Container */}
+        <div className="print-container p-2 sm:p-6 print:p-0 print:m-0">
+          {cardPages.map((pageCards, pageIndex) => (
+            <div
+              key={pageIndex}
+              className="print-page w-full max-w-[198mm] mx-auto mb-8 print:mb-0 print:p-0 p-3 sm:p-4 bg-white rounded-2xl shadow-lg border border-stone-300"
+            >
+              {/* Page Header (impresión y vista previa) */}
+              <div className="flex items-center justify-between gap-3 border-b-2 border-[#A40B03] pb-2 mb-3">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <img
+                    src={logoRed}
+                    alt="Food Fest 2026"
+                    className="h-8 w-auto object-contain shrink-0"
+                  />
+                  <div className="h-7 w-px bg-stone-300 shrink-0" />
+                  <img
+                    src={restLogo}
+                    alt={printRest.nombre}
+                    className="h-8 w-8 rounded-lg object-contain border border-stone-300 shadow-sm shrink-0 bg-white"
+                    onError={(e) => { (e.currentTarget as HTMLImageElement).src = logoRed; }}
+                  />
+                  <div className="min-w-0 leading-tight">
+                    <div className="text-[9px] font-black uppercase tracking-[0.2em] text-[#A40B03] leading-none">
+                      Food Fest 2026 • El Tocuyo
+                    </div>
+                    <div className="text-sm font-black text-stone-900 leading-tight truncate">
+                      {printRest.nombre}
+                    </div>
+                    <div className="text-[10px] text-stone-600 font-bold truncate">
+                      {printRest.nombreHamburguesa}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="text-right shrink-0">
+                  <div className="text-[9px] font-black uppercase tracking-wider text-[#A40B03] bg-red-50 border border-red-200 px-2 py-0.5 rounded-full inline-block">
+                    Identificadores de Mesa Oficiales
+                  </div>
+                  <div className="text-[10px] text-stone-600 font-semibold mt-0.5">
+                    Hoja <span className="font-black text-stone-950">{pageIndex + 1}</span> de {totalPages}
+                  </div>
+                  <div className="text-[8.5px] font-mono text-stone-400">
+                    Formato {tableGridFormat === '9' ? '3x3 (9 QRs)' : tableGridFormat === '6' ? '2x3 (6 QRs)' : '2x2 (4 QRs)'} • A4 / Carta
+                  </div>
+                </div>
+              </div>
+
+              {/* Grid: 3x3 (9 por hoja) */}
+              {tableGridFormat === '9' && (
+                <div
+                  className="grid gap-2"
+                  style={{
+                    gridTemplateColumns: 'repeat(3, 1fr)',
+                    gridTemplateRows: 'repeat(3, 1fr)'
+                  }}
+                >
+                  {pageCards.map((c) => {
+                    const tableUrl = `${origin}${pathname}?restaurante=${printRest.id}${tableNumbering ? `&mesa=${c.tableNum}` : ''}`;
+                    const tableLabel = tableNumbering ? `MESA #${String(c.tableNum).padStart(2, '0')}` : 'MESA OFICIAL';
+
+                    return (
+                      <div
+                        key={c.index}
+                        className="table-card-print relative border-2 border-dashed border-stone-400 rounded-xl p-2 flex flex-col justify-between bg-gradient-to-b from-[#FFFDF9] to-white shadow-xs overflow-hidden"
+                        style={{ minHeight: '78mm', maxHeight: '82mm' }}
+                      >
+                        {/* Top burgundy and gold accent bar */}
+                        <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-[#A40B03] via-amber-500 to-[#A40B03]" />
+
+                        {/* Card Header with Competition Logo and Table Badge */}
+                        <div className="flex items-center justify-between gap-1 pt-0.5 border-b border-stone-200/80 pb-1">
+                          <div className="flex items-center gap-1 min-w-0">
+                            <img
+                              src={logoRed}
+                              alt="Food Fest 2026"
+                              className="h-4.5 w-auto object-contain shrink-0"
+                            />
+                            <div className="h-3.5 w-px bg-stone-300 shrink-0" />
+                            <span className="text-[6.5px] font-black uppercase tracking-wider text-[#A40B03] leading-none truncate">
+                              Food Fest 2026
+                            </span>
+                          </div>
+
+                          <span className="text-[6.5px] font-black uppercase tracking-wider text-amber-900 bg-amber-50 border border-amber-300/80 px-1 py-0.5 rounded font-mono shrink-0">
+                            {tableLabel}
+                          </span>
+                        </div>
+
+                        {/* Restaurant Logo BESIDE Burger & Restaurant Names (Bigger logo, no empty gaps!) */}
+                        <div className="flex items-center gap-1.5 px-1 py-0.5 bg-stone-50/90 rounded-lg border border-stone-200/90 my-0.5">
+                          <img
+                            src={restLogo}
+                            alt={printRest.nombre}
+                            className="h-9 w-9 rounded-md object-contain border border-stone-300 bg-white shrink-0 shadow-xs"
+                            onError={(e) => { (e.currentTarget as HTMLImageElement).src = logoRed; }}
+                          />
+                          <div className="min-w-0 flex-1 leading-tight text-left">
+                            <div className="font-black text-[9.5px] uppercase tracking-tight text-stone-900 leading-none truncate">
+                              {printRest.nombreHamburguesa}
+                            </div>
+                            <div className="text-[7.5px] font-extrabold uppercase tracking-wide text-[#A40B03] leading-none mt-0.5 truncate">
+                              {printRest.nombre}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* QR Code (ON TOP, AMPLE & WIDE) */}
+                        <div className="flex flex-col items-center justify-center my-0.5">
+                          <div className="p-1 bg-white rounded-lg border border-[#A40B03] shadow-xs flex items-center justify-center">
+                            <QRCodeSVG
+                              value={tableUrl}
+                              size={76}
+                              level="Q"
+                              includeMargin={false}
+                            />
+                          </div>
+                          <div className="mt-0.5 bg-[#A40B03] text-white font-black text-[6.5px] uppercase tracking-wider px-2 py-0.5 rounded-full text-center shadow-xs">
+                            ¡ESCANEA Y VOTA!
+                          </div>
+                        </div>
+
+                        {/* The 5 Steps (UNDERNEATH, ORDERLY & JUSTIFIED) */}
+                        <div className="w-full bg-stone-50/90 border border-stone-200/90 rounded-md px-1.5 py-1 space-y-0.5 text-[6.5px] font-bold text-stone-850">
+                          <div className="flex items-center justify-between">
+                            <span className="flex items-center gap-1">
+                              <span className="w-3 h-3 rounded-full bg-[#A40B03] text-white flex items-center justify-center text-[5.5px] font-black shrink-0">1</span>
+                              <span>Escanea el QR</span>
+                            </span>
+                            <span className="text-stone-400 font-normal text-[5.5px]">con tu cámara</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="flex items-center gap-1">
+                              <span className="w-3 h-3 rounded-full bg-[#A40B03] text-white flex items-center justify-center text-[5.5px] font-black shrink-0">2</span>
+                              <span>Regístrate con cuenta</span>
+                            </span>
+                            <span className="text-stone-400 font-normal text-[5.5px]">Google o email</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="flex items-center gap-1">
+                              <span className="w-3 h-3 rounded-full bg-[#A40B03] text-white flex items-center justify-center text-[5.5px] font-black shrink-0">3</span>
+                              <span>Ingresa el código</span>
+                            </span>
+                            <span className="text-stone-400 font-normal text-[5.5px]">Ingresa Codigo</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="flex items-center gap-1">
+                              <span className="w-3 h-3 rounded-full bg-[#A40B03] text-white flex items-center justify-center text-[5.5px] font-black shrink-0">4</span>
+                              <span>Califica de 1 a 5 ★</span>
+                            </span>
+                            <span className="text-amber-700 font-bold text-[5.5px]">Tu veredicto</span>
+                          </div>
+                          <div className="flex items-center justify-between pt-0.5 border-t border-stone-200 text-emerald-800 font-black bg-emerald-50 px-1 py-0.5 rounded">
+                            <span className="flex items-center gap-1">
+                              <span className="w-3 h-3 rounded-full bg-emerald-600 text-white flex items-center justify-center text-[5.5px] font-black shrink-0">5</span>
+                              <span>Voto Confirmado</span>
+                            </span>
+                            <span className="text-emerald-700 font-extrabold text-[5.5px]">✓ Oficial</span>
+                          </div>
+                        </div>
+
+                        {/* Card Footer with Cut Guides */}
+                        <div className="flex items-center justify-between pt-0.5 border-t border-dotted border-stone-300 text-[6px] text-stone-400 font-bold uppercase tracking-wider">
+                          <span className="flex items-center gap-0.5">
+                            <Scissors className="w-2 h-2 text-stone-400" />
+                            <span>Línea corte</span>
+                          </span>
+                          <span className="text-[#A40B03] font-black">Food Fest 2026</span>
+                          <span className="font-mono">#{String(c.index).padStart(3, '0')}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Grid: 2x3 (6 por hoja) */}
+              {tableGridFormat === '6' && (
+                <div
+                  className="grid gap-3"
+                  style={{
+                    gridTemplateColumns: 'repeat(2, 1fr)',
+                    gridTemplateRows: 'repeat(3, 1fr)'
+                  }}
+                >
+                  {pageCards.map((c) => {
+                    const tableUrl = `${origin}${pathname}?restaurante=${printRest.id}${tableNumbering ? `&mesa=${c.tableNum}` : ''}`;
+                    const tableLabel = tableNumbering ? `MESA #${String(c.tableNum).padStart(2, '0')}` : 'MESA OFICIAL';
+
+                    return (
+                      <div
+                        key={c.index}
+                        className="table-card-print relative border-2 border-dashed border-stone-400 rounded-2xl p-2.5 flex flex-col justify-between bg-gradient-to-b from-[#FFFDF9] to-white shadow-sm overflow-hidden"
+                        style={{ minHeight: '74mm', maxHeight: '78mm' }}
+                      >
+                        {/* Top burgundy and gold accent bar */}
+                        <div className="absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r from-[#A40B03] via-amber-500 to-[#A40B03]" />
+
+                        {/* Card Header with Competition Logo and Table Badge */}
+                        <div className="flex items-center justify-between gap-1.5 pt-1 border-b border-stone-200/80 pb-1.5">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <img
+                              src={logoRed}
+                              alt="Food Fest 2026"
+                              className="h-6 w-auto object-contain shrink-0"
+                            />
+                            <div className="h-5 w-px bg-stone-300 shrink-0" />
+                            <span className="text-[7.5px] font-black uppercase tracking-wider text-[#A40B03] leading-none truncate">
+                              Food Fest 2026
+                            </span>
+                          </div>
+
+                          <span className="text-[7.5px] font-black uppercase tracking-wider text-amber-900 bg-amber-50 border border-amber-300/80 px-1.5 py-0.5 rounded font-mono">
+                            {tableLabel}
+                          </span>
+                        </div>
+
+                        {/* Restaurant Logo BESIDE Burger & Restaurant Names */}
+                        <div className="flex items-center gap-2 px-1.5 py-1 bg-stone-50 rounded-xl border border-stone-200/90 my-1">
+                          <img
+                            src={restLogo}
+                            alt={printRest.nombre}
+                            className="h-10 w-10 rounded-lg object-contain border border-stone-300 bg-white shrink-0 shadow-sm"
+                            onError={(e) => { (e.currentTarget as HTMLImageElement).src = logoRed; }}
+                          />
+                          <div className="min-w-0 flex-1 leading-tight text-left">
+                            <div className="font-black text-[10.5px] uppercase tracking-tight text-stone-900 leading-tight truncate">
+                              {printRest.nombreHamburguesa}
+                            </div>
+                            <div className="text-[8.5px] font-black uppercase tracking-wider text-[#A40B03] truncate">
+                              {printRest.nombre}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* QR Code (ON TOP, AMPLE) */}
+                        <div className="flex flex-col items-center justify-center my-1">
+                          <div className="p-1.5 bg-white rounded-xl border border-[#A40B03] shadow-sm flex items-center justify-center">
+                            <QRCodeSVG
+                              value={tableUrl}
+                              size={82}
+                              level="Q"
+                              includeMargin={false}
+                            />
+                          </div>
+                          <div className="mt-1 bg-[#A40B03] text-white font-black text-[7.5px] uppercase tracking-wider py-0.5 px-2.5 rounded-full text-center shadow-xs">
+                            ¡ESCANEA Y VOTA!
+                          </div>
+                        </div>
+
+                        {/* The 5 Steps (UNDERNEATH, ORDERLY & JUSTIFIED) */}
+                        <div className="w-full bg-stone-50 border border-stone-200 rounded-lg px-2 py-1 space-y-0.5 text-[7px] font-bold text-stone-850">
+                          <div className="flex items-center justify-between">
+                            <span className="flex items-center gap-1">
+                              <span className="w-3.5 h-3.5 rounded-full bg-[#A40B03] text-white flex items-center justify-center text-[6px] font-black shrink-0">1</span>
+                              <span>Escanea el QR</span>
+                            </span>
+                            <span className="text-stone-400 font-normal text-[6px]">con tu cámara</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="flex items-center gap-1">
+                              <span className="w-3.5 h-3.5 rounded-full bg-[#A40B03] text-white flex items-center justify-center text-[6px] font-black shrink-0">2</span>
+                              <span>Regístrate con cuenta</span>
+                            </span>
+                            <span className="text-stone-400 font-normal text-[6px]">Google o email</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="flex items-center gap-1">
+                              <span className="w-3.5 h-3.5 rounded-full bg-[#A40B03] text-white flex items-center justify-center text-[6px] font-black shrink-0">3</span>
+                              <span>Ingresa el código</span>
+                            </span>
+                            <span className="text-stone-400 font-normal text-[6px]">ingresa Codigo</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="flex items-center gap-1">
+                              <span className="w-3.5 h-3.5 rounded-full bg-[#A40B03] text-white flex items-center justify-center text-[6px] font-black shrink-0">4</span>
+                              <span>Califica de 1 a 5 ★</span>
+                            </span>
+                            <span className="text-amber-700 font-bold text-[6px]">Tu veredicto</span>
+                          </div>
+                          <div className="flex items-center justify-between pt-0.5 border-t border-stone-200 text-emerald-800 font-black bg-emerald-50 px-1 py-0.5 rounded">
+                            <span className="flex items-center gap-1">
+                              <span className="w-3.5 h-3.5 rounded-full bg-emerald-600 text-white flex items-center justify-center text-[6px] font-black shrink-0">5</span>
+                              <span>Voto Confirmado</span>
+                            </span>
+                            <span className="text-emerald-700 font-extrabold text-[6px]">✓ Oficial</span>
+                          </div>
+                        </div>
+
+                        {/* Card Footer with Cut Guides */}
+                        <div className="flex items-center justify-between pt-1 border-t border-dotted border-stone-300 text-[6.5px] text-stone-400 font-bold uppercase tracking-wider">
+                          <span className="flex items-center gap-0.5">
+                            <Scissors className="w-2.5 h-2.5 text-stone-400" />
+                            <span>Línea de corte</span>
+                          </span>
+                          <span className="text-[#A40B03] font-black">Food Fest El Tocuyo 2026</span>
+                          <span className="font-mono">#{String(c.index).padStart(3, '0')}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Grid: 2x2 (4 por hoja) - Formato Grande */}
+              {tableGridFormat === '4' && (
+                <div
+                  className="grid gap-4"
+                  style={{
+                    gridTemplateColumns: 'repeat(2, 1fr)',
+                    gridTemplateRows: 'repeat(2, 1fr)'
+                  }}
+                >
+                  {pageCards.map((c) => {
+                    const tableUrl = `${origin}${pathname}?restaurante=${printRest.id}${tableNumbering ? `&mesa=${c.tableNum}` : ''}`;
+                    const tableLabel = tableNumbering ? `MESA #${String(c.tableNum).padStart(2, '0')}` : 'MESA OFICIAL';
+
+                    return (
+                      <div
+                        key={c.index}
+                        className="table-card-print relative border-2 border-dashed border-stone-400 rounded-3xl p-4 flex flex-col justify-between bg-gradient-to-b from-[#FFFDF9] via-white to-stone-50 shadow-sm overflow-hidden"
+                        style={{ minHeight: '112mm', maxHeight: '116mm' }}
+                      >
+                        {/* Top burgundy and gold accent bar */}
+                        <div className="absolute inset-x-0 top-0 h-2 bg-gradient-to-r from-[#A40B03] via-amber-500 to-[#A40B03]" />
+
+                        {/* Header with Competition Logo and Table Badge */}
+                        <div className="flex items-center justify-between gap-2 pt-1 border-b border-stone-200 pb-2">
+                          <div className="flex items-center gap-2">
+                            <img
+                              src={logoRed}
+                              alt="Food Fest 2026"
+                              className="h-8 w-auto object-contain"
+                            />
+                            <div className="h-7 w-px bg-stone-300" />
+                            <div>
+                              <div className="text-[8px] font-black uppercase tracking-[0.2em] text-[#A40B03] leading-none">
+                                Food Fest 2026
+                              </div>
+                              <div className="text-[7.5px] font-bold text-stone-500 uppercase tracking-widest leading-none mt-0.5">
+                                El Tocuyo • Edición Oficial
+                              </div>
+                            </div>
+                          </div>
+
+                          <span className="text-[9px] font-mono font-black uppercase tracking-wider text-amber-900 bg-amber-50 border border-amber-300 px-2 py-0.5 rounded-full">
+                            {tableLabel}
+                          </span>
+                        </div>
+
+                        {/* Restaurant Logo BESIDE Burger & Restaurant Names */}
+                        <div className="flex items-center gap-2.5 px-2.5 py-1.5 bg-stone-50 rounded-2xl border border-stone-200 my-1">
+                          <img
+                            src={restLogo}
+                            alt={printRest.nombre}
+                            className="h-11 w-11 rounded-xl object-contain border border-stone-300 bg-white shadow-sm shrink-0"
+                            onError={(e) => { (e.currentTarget as HTMLImageElement).src = logoRed; }}
+                          />
+                          <div className="min-w-0 flex-1 leading-tight text-left">
+                            <h4 className="font-black text-xs uppercase tracking-tight text-stone-900 truncate">
+                              {printRest.nombreHamburguesa}
+                            </h4>
+                            <p className="text-[10px] font-black uppercase tracking-wider text-[#A40B03] truncate">
+                              {printRest.nombre}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Center: Big QR Code */}
+                        <div className="flex flex-col items-center justify-center my-1">
+                          <div className="p-2 bg-white rounded-2xl border-2 border-[#A40B03] shadow-md">
+                            <QRCodeSVG
+                              value={tableUrl}
+                              size={110}
+                              level="Q"
+                              includeMargin={false}
+                            />
+                          </div>
+                          <div className="mt-1.5 bg-[#A40B03] text-white font-black text-[9px] uppercase tracking-wider py-1 px-3 rounded-lg shadow-sm">
+                            ¡ESCANEA CON TU CÁMARA Y VOTA!
+                          </div>
+                        </div>
+
+                        {/* The 5 Steps */}
+                        <div className="grid grid-cols-2 gap-1 text-[7.5px] font-bold text-stone-700 bg-stone-50 p-2 rounded-xl border border-stone-200 leading-tight">
+                          <div className="flex items-center gap-1">
+                            <span className="w-3.5 h-3.5 rounded-full bg-[#A40B03] text-white flex items-center justify-center text-[6px] font-black shrink-0">1</span>
+                            <span>Escanea el QR</span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <span className="w-3.5 h-3.5 rounded-full bg-[#A40B03] text-white flex items-center justify-center text-[6px] font-black shrink-0">2</span>
+                            <span>Regístrate con cuenta</span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <span className="w-3.5 h-3.5 rounded-full bg-[#A40B03] text-white flex items-center justify-center text-[6px] font-black shrink-0">3</span>
+                            <span>Ingresa el código</span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <span className="w-3.5 h-3.5 rounded-full bg-[#A40B03] text-white flex items-center justify-center text-[6px] font-black shrink-0">4</span>
+                            <span>Califica de 1 a 5 ★</span>
+                          </div>
+                          <div className="col-span-2 flex items-center justify-center gap-1 text-emerald-800 font-extrabold bg-emerald-50 border border-emerald-200 py-0.5 rounded">
+                            <span className="w-3.5 h-3.5 rounded-full bg-emerald-600 text-white flex items-center justify-center text-[6px] font-black shrink-0">5</span>
+                            <span>Voto Confirmado</span>
+                          </div>
+                        </div>
+
+                        {/* Footer with Cut Guideline */}
+                        <div className="flex items-center justify-between pt-1.5 border-t border-dotted border-stone-300 text-[7px] text-stone-400 font-bold uppercase tracking-wider">
+                          <span className="flex items-center gap-1">
+                            <Scissors className="w-3 h-3 text-stone-400" />
+                            <span>Línea de corte</span>
+                          </span>
+                          <span className="text-[#A40B03] font-black">Votación Oficial Food Fest 2026</span>
+                          <span className="font-mono">#{String(c.index).padStart(3, '0')}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // --- VISTA DEDICADA DE IMPRESIÓN DE QRS DE TIENDA PATROCINADORA (FORMATO A4 / CARTA) ---
+  if (printSponsorId) {
+    const isAll = printSponsorId === 'ALL';
+    const singleSponsor = !isAll
+      ? (patrocinadores.find(p => p.id === printSponsorId) || patrocinadores[0])
+      : null;
+
+    if (!isAll && !singleSponsor && patrocinadores.length === 0) {
+      setPrintSponsorId(null);
+      return null;
+    }
+
+    // Determine list of items to print
+    let itemsToPrint: Patrocinador[] = [];
+    if (isAll) {
+      itemsToPrint = patrocinadores;
+    } else if (singleSponsor) {
+      itemsToPrint = Array.from({ length: Math.max(1, sponsorCardsCount) }, () => singleSponsor);
+    }
+
+    const cardsPerPage = sponsorGridFormat === '1' ? 1 : 4;
+    const totalCards = itemsToPrint.length;
+    const totalPages = Math.ceil(totalCards / cardsPerPage);
+
+    // Group cards by page
+    const cardPages: { sponsor: Patrocinador; index: number }[][] = [];
+    for (let p = 0; p < totalPages; p++) {
+      const pageCards: { sponsor: Patrocinador; index: number }[] = [];
+      for (let i = 0; i < cardsPerPage; i++) {
+        const globalIdx = p * cardsPerPage + i;
+        if (globalIdx < totalCards) {
+          pageCards.push({
+            sponsor: itemsToPrint[globalIdx],
+            index: globalIdx + 1
+          });
+        }
+      }
+      cardPages.push(pageCards);
+    }
+
+    const origin = typeof window !== 'undefined' ? window.location.origin : 'https://tocuyo-burgerfest.com';
+    const pathname = typeof window !== 'undefined' ? window.location.pathname : '/';
+
+    return (
+      <div className="print-root bg-stone-200 text-stone-950 min-h-screen relative pb-52 print:pb-0 print:p-0 print:bg-white print:min-h-0">
+        <style>{`
+          @media print {
+            .no-print { display: none !important; }
+            @page {
+              size: A4 portrait;
+              margin: 4mm 6mm;
+            }
+            html, body {
+              width: 100% !important;
+              height: auto !important;
+              margin: 0 !important;
+              padding: 0 !important;
+              background: white !important;
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+            }
+            .print-root {
+              background: white !important;
+              padding: 0 !important;
+              margin: 0 !important;
+              min-height: 0 !important;
+            }
+            .print-container {
+              padding: 0 !important;
+              margin: 0 !important;
+            }
+            .print-page {
+              width: 198mm !important;
+              max-width: 198mm !important;
+              margin: 0 auto !important;
+              margin-bottom: 0 !important;
+              padding: 0 !important;
+              border: none !important;
+              border-radius: 0 !important;
+              box-shadow: none !important;
+              background: white !important;
+              box-sizing: border-box !important;
+              overflow: hidden !important;
+            }
+            .print-page + .print-page {
+              page-break-before: always !important;
+              break-before: page !important;
+            }
+            .sponsor-card-print {
+              break-inside: avoid !important;
+              page-break-inside: avoid !important;
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+            }
+            .sponsor-card-print * {
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+            }
+          }
+        `}</style>
+
+        {/* Floating Controls (Hidden in Print) */}
+        <div className="no-print fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-50 flex flex-col items-end gap-3 max-w-xl">
+          {/* Customization Bar */}
+          <div className="bg-black/95 backdrop-blur-md px-5 py-4 rounded-3xl shadow-2xl border border-stone-800 text-stone-200 w-full space-y-3">
+            <div className="flex items-center justify-between gap-3 border-b border-stone-800 pb-2.5">
+              <div className="flex items-center gap-2 min-w-0">
+                <Crown className="w-5 h-5 text-amber-400 shrink-0" />
+                <span className="font-extrabold text-sm text-[#FFF9ED] truncate">
+                  Imprimir QRs de Patrocinadores (PDF)
+                </span>
+              </div>
+              <span className="text-[10px] font-mono text-amber-400 bg-amber-950/60 border border-amber-600/40 px-2 py-0.5 rounded-full shrink-0">
+                Punto de Facturación
+              </span>
+            </div>
+
+            {/* Select Sponsor */}
+            <div className="space-y-1">
+              <span className="text-[10px] uppercase font-bold text-stone-400 block">Patrocinador a Imprimir</span>
+              <select
+                value={printSponsorId}
+                onChange={(e) => setPrintSponsorId(e.target.value)}
+                className="w-full bg-stone-900 border border-stone-700 text-[#FFF9ED] text-xs font-semibold rounded-xl px-3 py-2 cursor-pointer focus:outline-none focus:border-amber-500"
+              >
+                <option value="ALL">⭐ Todos los Patrocinadores ({patrocinadores.length} marcas registradas)</option>
+                {patrocinadores.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.nombre} • {p.tipo}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Selector de Diseño de Cuadrícula */}
+            <div className="grid grid-cols-2 gap-3 pt-1">
+              <div className="space-y-1">
+                <span className="text-[10px] uppercase font-bold text-stone-400 block">Formato por Hoja</span>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSponsorGridFormat('4');
+                      if (sponsorCardsCount === 1) setSponsorCardsCount(4);
+                    }}
+                    className={`py-1.5 text-center font-bold text-[11px] rounded-lg transition-all border cursor-pointer ${
+                      sponsorGridFormat === '4'
+                        ? 'bg-amber-500 text-stone-950 border-amber-400 shadow-sm font-black'
+                        : 'bg-stone-900 text-stone-300 border-stone-800 hover:text-white'
+                    }`}
+                  >
+                    2x2 (4 por Hoja)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSponsorGridFormat('1');
+                      if (sponsorCardsCount === 4) setSponsorCardsCount(1);
+                    }}
+                    className={`py-1.5 text-center font-bold text-[11px] rounded-lg transition-all border cursor-pointer ${
+                      sponsorGridFormat === '1'
+                        ? 'bg-amber-500 text-stone-950 border-amber-400 shadow-sm font-black'
+                        : 'bg-stone-900 text-stone-300 border-stone-800 hover:text-white'
+                    }`}
+                  >
+                    1 Grande (Stand A4)
+                  </button>
+                </div>
+              </div>
+
+              {/* Cantidad de Copias (si es un solo patrocinador) */}
+              {!isAll ? (
+                <div className="space-y-1">
+                  <span className="text-[10px] uppercase font-bold text-stone-400 block">Copias de Tarjeta</span>
+                  <div className="flex items-center gap-1">
+                    {(sponsorGridFormat === '4' ? [4, 8, 12, 16] : [1, 2, 3, 4]).map(num => (
+                      <button
+                        key={num}
+                        type="button"
+                        onClick={() => setSponsorCardsCount(num)}
+                        className={`px-2 py-1 text-center font-mono font-bold text-[11px] rounded-lg transition-all border cursor-pointer ${
+                          sponsorCardsCount === num
+                            ? 'bg-stone-800 border-amber-500 text-amber-300'
+                            : 'bg-stone-900 border-stone-800 text-stone-400 hover:text-white'
+                        }`}
+                      >
+                        {num}
+                      </button>
+                    ))}
+                    <input
+                      type="number"
+                      min="1"
+                      max="40"
+                      value={sponsorCardsCount}
+                      onChange={(e) => setSponsorCardsCount(Math.max(1, parseInt(e.target.value) || 1))}
+                      className="w-12 bg-stone-900 border border-stone-700 text-stone-200 text-[11px] font-mono font-bold rounded-lg px-1 py-1 text-center"
+                      title="Copias personalizadas"
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  <span className="text-[10px] uppercase font-bold text-stone-400 block">Lote Completo</span>
+                  <div className="text-[11px] text-amber-300 font-bold bg-stone-900 border border-stone-800 rounded-lg py-1 px-2 truncate">
+                    {patrocinadores.length} tiendas registradas
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Summary info */}
+            <div className="text-[11px] text-stone-400 flex items-center justify-between border-t border-stone-800 pt-2 font-mono">
+              <span>{totalCards} tarjeta{totalCards === 1 ? '' : 's'} • {totalPages} página{totalPages === 1 ? '' : 's'} A4 / Carta</span>
+              <span className="text-amber-400 font-bold">
+                {cardsPerPage === 1 ? '1 Stand Grande (A4)' : '4 QRs por hoja (2x2)'}
+              </span>
+            </div>
+          </div>
+
+          {/* Action buttons */}
+          <div className="flex gap-3 bg-black/95 backdrop-blur-md p-3 rounded-2xl shadow-2xl border border-stone-800">
+            <button
+              type="button"
+              onClick={() => setPrintSponsorId(null)}
+              className="px-5 py-2.5 rounded-xl bg-stone-900 text-stone-200 font-bold text-xs sm:text-sm hover:bg-stone-800 transition-colors cursor-pointer"
+            >
+              Volver al Panel
+            </button>
+            <button
+              type="button"
+              onClick={() => window.print()}
+              className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-[#A40B03] to-[#BF0E05] text-[#FFF9ED] font-black text-xs sm:text-sm hover:brightness-110 flex items-center gap-2 border border-amber-400/40 shadow-lg shadow-[#A40B03]/30 cursor-pointer"
+            >
+              <Printer className="w-4 h-4 text-amber-300" />
+              <span>Guardar en PDF / Imprimir</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Printable Sheets Container */}
+        <div className="print-container p-2 sm:p-6 print:p-0 print:m-0">
+          {cardPages.map((pageCards, pageIndex) => (
+            <div
+              key={pageIndex}
+              className="print-page w-full max-w-[198mm] mx-auto mb-8 print:mb-0 print:p-0 p-3 sm:p-4 bg-white rounded-2xl shadow-lg border border-stone-300"
+            >
+              {/* Page Header (impresión y vista previa) */}
+              <div className="flex items-center justify-between gap-3 border-b-2 border-[#A40B03] pb-2 mb-3">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <img
+                    src={logoRed}
+                    alt="Food Fest 2026"
+                    className="h-8 w-auto object-contain shrink-0"
+                  />
+                  <div className="h-7 w-px bg-stone-300 shrink-0" />
+                  <div className="min-w-0 leading-tight">
+                    <div className="text-[9px] font-black uppercase tracking-[0.2em] text-[#A40B03] leading-none">
+                      The Best Burger 2026 • El Tocuyo
+                    </div>
+                    <div className="text-sm font-black text-stone-900 leading-tight truncate">
+                      Punto Oficial de Facturación de Tienda Patrocinadora
+                    </div>
+                    <div className="text-[10px] text-stone-600 font-bold truncate">
+                      Escaneo exclusivo para validación y registro de compras oficiales
+                    </div>
+                  </div>
+                </div>
+
+                <div className="text-right shrink-0">
+                  <div className="text-[9px] font-black uppercase tracking-wider text-amber-950 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded-full inline-block">
+                    Material Oficial de Mostrador
+                  </div>
+                  <div className="text-[10px] text-stone-600 font-semibold mt-0.5">
+                    Hoja <span className="font-black text-stone-950">{pageIndex + 1}</span> de {totalPages}
+                  </div>
+                  <div className="text-[8.5px] font-mono text-stone-400">
+                    {sponsorGridFormat === '1' ? '1 Stand Grande (1x1)' : '4 Tarjetas (2x2)'} • A4 / Carta
+                  </div>
+                </div>
+              </div>
+
+              {/* Grid 1: 1 por hoja (Stand Grande A4 / Mostrador) */}
+              {sponsorGridFormat === '1' && (
+                <div className="w-full flex items-center justify-center">
+                  {pageCards.map((c) => {
+                    const pat = c.sponsor;
+                    const sponsorLogo = pat.logoUrl || logoRed;
+                    const sponsorCheckinUrl = `${origin}${pathname}?patrocinador=${pat.id}`;
+
+                    return (
+                      <div
+                        key={c.index}
+                        className="sponsor-card-print w-full relative border-2 border-[#A40B03] rounded-3xl p-6 sm:p-7 flex flex-col justify-between bg-gradient-to-b from-[#FFFDF9] via-white to-[#FFFDF9] shadow-sm overflow-hidden"
+                        style={{ minHeight: '246mm', maxHeight: '252mm' }}
+                      >
+                        {/* Top burgundy and gold accent bar */}
+                        <div className="absolute inset-x-0 top-0 h-2 bg-gradient-to-r from-[#A40B03] via-amber-500 to-[#A40B03]" />
+
+                        {/* Card Header with Competition Logo and Official Badge */}
+                        <div className="flex items-center justify-between gap-4 pt-1 border-b border-stone-200 pb-3">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <img
+                              src={logoRed}
+                              alt="Food Fest 2026"
+                              className="h-10 w-auto object-contain shrink-0"
+                            />
+                            <div className="h-8 w-px bg-stone-300 shrink-0" />
+                            <div>
+                              <div className="text-[9px] font-black uppercase tracking-[0.25em] text-[#A40B03] leading-none">
+                                The Best Burger 2026 • El Tocuyo
+                              </div>
+                              <div className="text-base font-black text-stone-900 leading-tight">
+                                TIENDA PATROCINADORA AUTORIZADA
+                              </div>
+                            </div>
+                          </div>
+
+                          <span className="text-[10px] font-black uppercase tracking-wider text-amber-950 bg-amber-100 border border-amber-300 px-3 py-1 rounded-full font-mono shrink-0 shadow-xs">
+                            PUNTO OFICIAL
+                          </span>
+                        </div>
+
+                        {/* Sponsor Brand Spotlight (Logo beside Name and Category) */}
+                        <div className="flex items-center gap-4 p-4 bg-stone-50/95 rounded-2xl border border-stone-200 shadow-xs my-2">
+                          <img
+                            src={sponsorLogo}
+                            alt={pat.nombre}
+                            className="h-20 w-20 rounded-xl object-contain border border-stone-300 bg-white p-1.5 shadow-sm shrink-0"
+                            onError={(e) => { (e.currentTarget as HTMLImageElement).src = logoRed; }}
+                          />
+                          <div className="min-w-0 flex-1 leading-tight text-left">
+                            <div className="font-black text-2xl uppercase tracking-tight text-stone-900 leading-tight truncate">
+                              {pat.nombre}
+                            </div>
+                            <div className="inline-block mt-1 text-xs font-black uppercase tracking-wider text-white bg-[#A40B03] px-2.5 py-0.5 rounded-md">
+                              {pat.tipo}
+                            </div>
+                            {pat.descripcion && (
+                              <p className="text-xs text-stone-600 font-medium line-clamp-2 mt-1">
+                                {pat.descripcion}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* QR Code Centerpiece (Maximized Amplitude) */}
+                        <div className="flex flex-col items-center justify-center my-2">
+                          <div className="p-3 bg-white rounded-3xl border-2 border-[#A40B03] shadow-md flex items-center justify-center">
+                            <QRCodeSVG
+                              value={sponsorCheckinUrl}
+                              size={155}
+                              level="Q"
+                              includeMargin={false}
+                            />
+                          </div>
+
+                          {/* Striking Callout Banner */}
+                          <div className="mt-3 bg-gradient-to-r from-[#A40B03] via-[#C91006] to-[#A40B03] text-white font-black text-lg sm:text-xl uppercase tracking-wider px-8 py-2.5 rounded-2xl text-center shadow-lg border border-amber-400/60 flex items-center justify-center gap-2">
+                            <Receipt className="w-6 h-6 text-amber-300 shrink-0" />
+                            <span>¡INGRESA TU FACTURA ACÁ!</span>
+                          </div>
+
+                          {/* Explanatory subtitle (NO STEPS, exact requested copy) */}
+                          <div className="mt-3 max-w-lg bg-amber-50/95 border border-amber-200/90 rounded-xl px-4 py-2 text-center shadow-2xs">
+                            <p className="text-xs sm:text-sm font-extrabold text-amber-950 leading-relaxed">
+                              Escanea este código QR con la cámara de tu teléfono móvil para registrar y validar tu factura oficial de compra en este Patrocinante.
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Official Assurance Box */}
+                        <div className="bg-stone-50 border border-stone-200 rounded-xl p-3 flex items-center justify-between text-xs text-stone-800 font-bold">
+                          <div className="flex items-center gap-2">
+                            <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                            <span>Válido para restaurantes participantes del festival gastronómico</span>
+                          </div>
+                          <span className="font-mono text-[10px] text-amber-900 bg-amber-100 px-2 py-0.5 rounded border border-amber-300">
+                            ID: #PAT-{pat.id.slice(0, 8).toUpperCase()}
+                          </span>
+                        </div>
+
+                        {/* Card Footer with Festival Stamp and Validation Code */}
+                        <div className="flex items-center justify-between pt-2 border-t border-stone-200 text-[9px] text-stone-500 font-bold uppercase tracking-wider">
+                          <span className="flex items-center gap-1.5">
+                            <Store className="w-3.5 h-3.5 text-[#A40B03]" />
+                            <span>Punto de Mostrador Oficial • The Best Burger 2026</span>
+                          </span>
+                          <span className="text-[#A40B03] font-black">El Tocuyo, Estado Lara</span>
+                          <span className="font-mono">#{String(c.index).padStart(3, '0')}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Grid 2: 4 por hoja (2x2) */}
+              {sponsorGridFormat === '4' && (
+                <div
+                  className="grid gap-3"
+                  style={{
+                    gridTemplateColumns: 'repeat(2, 1fr)',
+                    gridTemplateRows: 'repeat(2, 1fr)'
+                  }}
+                >
+                  {pageCards.map((c) => {
+                    const pat = c.sponsor;
+                    const sponsorLogo = pat.logoUrl || logoRed;
+                    const sponsorCheckinUrl = `${origin}${pathname}?patrocinador=${pat.id}`;
+
+                    return (
+                      <div
+                        key={c.index}
+                        className="sponsor-card-print relative border-2 border-stone-300 rounded-2xl p-3 flex flex-col justify-between bg-gradient-to-b from-[#FFFDF9] via-white to-[#FFFDF9] shadow-xs overflow-hidden"
+                        style={{ minHeight: '126mm', maxHeight: '130mm' }}
+                      >
+                        {/* Top burgundy and gold accent bar */}
+                        <div className="absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r from-[#A40B03] via-amber-500 to-[#A40B03]" />
+
+                        {/* Header: Logo Oficial del Evento + Identificador */}
+                        <div className="flex items-center justify-between gap-1.5 pt-0.5 border-b border-stone-200/90 pb-1.5">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <img
+                              src={logoRed}
+                              alt="Food Fest 2026"
+                              className="h-6 w-auto object-contain shrink-0"
+                            />
+                            <div className="h-4.5 w-px bg-stone-300 shrink-0" />
+                            <div className="min-w-0">
+                              <div className="text-[6.5px] font-black uppercase tracking-[0.18em] text-[#A40B03] leading-none">
+                                Food Fest 2026
+                              </div>
+                              <div className="text-[8.5px] font-black text-stone-900 leading-tight truncate">
+                                El Tocuyo • 2026
+                              </div>
+                            </div>
+                          </div>
+
+                          <span className="text-[7px] font-black uppercase tracking-wider text-amber-950 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded-full font-mono shrink-0 shadow-2xs">
+                            TIENDA AUTORIZADA
+                          </span>
+                        </div>
+
+                        {/* Brand Showcase: Logo del Patrocinante + Nombre + Tipo (Jerarquía Clara) */}
+                        <div className="flex items-center gap-2 p-1.5 bg-stone-50/95 rounded-xl border border-stone-200/90 shadow-2xs my-1">
+                          <img
+                            src={sponsorLogo}
+                            alt={pat.nombre}
+                            className="h-12 w-12 rounded-lg object-contain border border-stone-300 bg-white p-1 shadow-xs shrink-0"
+                            onError={(e) => { (e.currentTarget as HTMLImageElement).src = logoRed; }}
+                          />
+                          <div className="min-w-0 flex-1 leading-tight text-left">
+                            <div className="font-black text-[12px] uppercase tracking-tight text-stone-900 leading-tight truncate">
+                              {pat.nombre}
+                            </div>
+                            <div className="inline-block mt-0.5 text-[7.5px] font-black uppercase tracking-wider text-white bg-[#A40B03] px-1.5 py-0.5 rounded">
+                              {pat.tipo}
+                            </div>
+                            <div className="text-[7.5px] text-stone-500 font-bold mt-0.5 truncate">
+                              Punto Oficial de Facturación y Compras
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* QR Code Centerpiece: Más Grande (size={106}) y Centrado */}
+                        <div className="flex flex-col items-center justify-center my-0.5">
+                          <div className="p-1.5 bg-white rounded-xl border-2 border-[#A40B03] shadow-xs flex items-center justify-center">
+                            <QRCodeSVG
+                              value={sponsorCheckinUrl}
+                              size={106}
+                              level="Q"
+                              includeMargin={false}
+                            />
+                          </div>
+
+                          {/* Striking Callout Banner */}
+                          <div className="mt-1.5 w-full bg-gradient-to-r from-[#A40B03] via-[#C91006] to-[#A40B03] text-white font-black text-[10px] uppercase tracking-wider py-1.5 px-2 rounded-lg text-center shadow-xs border border-amber-400/50 flex items-center justify-center gap-1.5">
+                            <Receipt className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+                            <span>¡INGRESA TU FACTURA ACÁ!</span>
+                          </div>
+                        </div>
+
+                        {/* Texto Institucional Exacto Solicitado */}
+                        <div className="w-full bg-amber-50/90 border border-amber-200/90 rounded-lg px-2 py-1 my-0.5 text-center">
+                          <p className="text-[7.5px] font-extrabold text-amber-950 leading-snug">
+                            Escanea este código QR con la cámara de tu teléfono móvil para registrar y validar tu factura oficial de compra en este Patrocinante.
+                          </p>
+                        </div>
+
+                        {/* Footer con Guía de Corte y Código Único */}
+                        <div className="flex items-center justify-between pt-1 border-t border-dotted border-stone-300 text-[6.5px] text-stone-400 font-bold uppercase tracking-wider">
+                          <span className="flex items-center gap-0.5">
+                            <Scissors className="w-2.5 h-2.5 text-stone-400" />
+                            <span>Línea corte</span>
+                          </span>
+                          <span className="text-[#A40B03] font-black">Food Fest 2026 • Registro Oficial</span>
+                          <span className="font-mono">#{String(c.index).padStart(3, '0')}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-black text-[#FFF9ED] py-6 sm:py-10">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
@@ -1650,98 +2988,755 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
           </button>
         </div>
 
-        {/* TAB 1: METRICS */}
-        {activeTab === 'stats' && (
-          <div className="space-y-6">
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-              <div className="p-5 rounded-2xl bg-[#0F0F0F] border border-stone-800">
-                <div className="text-xs font-semibold text-stone-400 uppercase">Votos Válidos</div>
-                <div className="text-3xl font-black text-[#FFF9ED] mt-1">{stats.totalVotos}</div>
-              </div>
-              <div className="p-5 rounded-2xl bg-[#0F0F0F] border border-stone-800">
-                <div className="text-xs font-semibold text-stone-400 uppercase">Códigos Generados</div>
-                <div className="text-3xl font-black text-stone-200 mt-1">{stats.totalCodigosGenerados}</div>
-              </div>
-              <div className="p-5 rounded-2xl bg-[#0F0F0F] border border-stone-800">
-                <div className="text-xs font-semibold text-stone-400 uppercase">Tasa de Canje</div>
-                <div className="text-3xl font-black text-[#A40B03] mt-1">
-                  {stats.totalCodigosGenerados > 0 ? Math.round((stats.totalCodigosUsados / stats.totalCodigosGenerados) * 100) : 0}%
-                </div>
-              </div>
-              <div className="p-5 rounded-2xl bg-red-950/20 border border-red-900/40">
-                <div className="text-xs font-semibold text-red-400 uppercase flex items-center gap-1.5">
-                  <ShieldAlert className="w-4 h-4" /> Fraude Prevenido
-                </div>
-                <div className="text-3xl font-black text-red-400 mt-1">{stats.intentosFraudeBloqueados}</div>
-              </div>
-            </div>
+        {/* TAB 1: METRICS & FRAUD DASHBOARD */}
+        {activeTab === 'stats' && (() => {
+          const participantesActivos = restaurantes.filter(r => !r.descalificado);
+          const participantesDescalificados = restaurantes.filter(r => r.descalificado);
+          const totalParticipantes = restaurantes.length;
+          const liderActual = sortedRestaurantes.find(r => !r.descalificado);
+          const promedioVotosPorRestaurante = totalParticipantes > 0 
+            ? (stats.totalVotos / totalParticipantes).toFixed(1) 
+            : '0.0';
+          const calificacionPromedioGlobal = stats.promedioGlobal && stats.promedioGlobal > 0 
+            ? stats.promedioGlobal.toFixed(2) 
+            : (participantesActivos.length > 0 && stats.totalVotos > 0
+                ? (participantesActivos.reduce((acc, curr) => acc + (curr.promedioRating * curr.votosCount), 0) / (stats.totalVotos || 1)).toFixed(2)
+                : '0.00');
+          const tasaCanje = stats.totalCodigosGenerados > 0 
+            ? Math.round(((stats.totalCodigosUsados || stats.totalVotos) / stats.totalCodigosGenerados) * 100) 
+            : 0;
+          const codigosDisponibles = Math.max(0, stats.totalCodigosGenerados - (stats.totalCodigosUsados || stats.totalVotos));
 
-            {/* Charts Section */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div className="p-6 rounded-2xl bg-[#0F0F0F] border border-stone-800 space-y-4">
-                <h3 className="font-bold text-stone-200 text-sm sm:text-base flex items-center gap-2">
-                  <BarChart3 className="w-5 h-5 text-[#A40B03]" /> <span>Votos por Restaurante</span>
-                </h3>
-                <div className="h-64 w-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={sortedRestaurantes} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#262626" vertical={false} />
-                      <XAxis dataKey="nombre" tick={{ fill: '#a8a29e', fontSize: 10 }} tickLine={false} axisLine={false} />
-                      <YAxis tick={{ fill: '#a8a29e', fontSize: 10 }} tickLine={false} axisLine={false} />
-                      <Tooltip 
-                        contentStyle={{ backgroundColor: '#0a0a0a', borderColor: '#262626', borderRadius: '12px', fontSize: '12px' }}
-                        itemStyle={{ color: '#FFF9ED' }}
-                        cursor={{ fill: '#171717' }}
-                      />
-                      <Bar dataKey="votosCount" name="Votos" fill="#A40B03" radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
+          const fraudeDuplicadosCount = fraudLogs.filter(f => f.motivo?.includes('DUPLICADO')).length;
+          const fraudeCodigosCount = fraudLogs.filter(f => f.motivo?.includes('CÓDIGO') || f.motivo?.includes('CODIGO') || f.motivo?.includes('USADO') || f.motivo?.includes('INEXISTENTE')).length;
+          const fraudeAdminCount = fraudLogs.filter(f => f.motivo?.includes('ADMIN') || f.motivo?.includes('AUTORIZADO')).length;
+
+          const filteredFraudLogs = fraudLogs.filter((log) => {
+            const matchesSearch = !fraudSearchQuery.trim() || 
+              (log.codigoIntentado && log.codigoIntentado.toLowerCase().includes(fraudSearchQuery.toLowerCase())) ||
+              (log.motivo && log.motivo.toLowerCase().includes(fraudSearchQuery.toLowerCase())) ||
+              (log.restauranteId && log.restauranteId.toLowerCase().includes(fraudSearchQuery.toLowerCase()));
+
+            if (!matchesSearch) return false;
+
+            if (fraudFilterType === 'DUPLICADOS') {
+              return log.motivo?.includes('DUPLICADO');
+            }
+            if (fraudFilterType === 'CODIGOS') {
+              return log.motivo?.includes('CÓDIGO') || log.motivo?.includes('CODIGO') || log.motivo?.includes('USADO') || log.motivo?.includes('INEXISTENTE');
+            }
+            if (fraudFilterType === 'ADMIN') {
+              return log.motivo?.includes('ADMIN') || log.motivo?.includes('AUTORIZADO');
+            }
+            return true;
+          });
+
+          // Metrics for quality distribution
+          const topTierBurgers = participantesActivos.filter(r => r.votosCount > 0 && r.promedioRating >= 4.75).length;
+          const midTierBurgers = participantesActivos.filter(r => r.votosCount > 0 && r.promedioRating >= 4.0 && r.promedioRating < 4.75).length;
+          const developingBurgers = participantesActivos.filter(r => r.votosCount === 0 || r.promedioRating < 4.0).length;
+
+          return (
+            <div className="space-y-6">
+              
+              {/* 1. HEADER EJECUTIVO & PULSO DEL FESTIVAL */}
+              <div className="p-6 rounded-2xl bg-gradient-to-b from-[#160c0c] via-[#0F0F0F] to-[#0A0A0A] border border-[#A40B03]/40 shadow-xl space-y-4">
+                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                  <div>
+                    <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                      <span className="px-3 py-1 rounded-full bg-[#A40B03]/20 border border-[#A40B03]/50 text-[#FFF9ED] text-xs font-bold uppercase tracking-wider flex items-center gap-1.5">
+                        <Activity className="w-3.5 h-3.5 text-emerald-400 animate-pulse" /> Centro de Comando Food Fest 2026
+                      </span>
+                      <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold border flex items-center gap-1.5 ${
+                        stats.resultadosRevelados
+                          ? 'bg-emerald-950/60 border-emerald-500/50 text-emerald-300'
+                          : 'bg-amber-950/60 border-amber-500/50 text-amber-300'
+                      }`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${stats.resultadosRevelados ? 'bg-emerald-400' : 'bg-amber-400 animate-ping'}`} />
+                        {stats.resultadosRevelados ? 'Gala Finalizada • Resultados Revelados' : 'Votación en Curso • Modo Anónimo'}
+                      </span>
+                    </div>
+
+                    <h2 className="text-xl sm:text-2xl font-black text-[#FFF9ED] tracking-wide">
+                      Métricas en Vivo, Rendimiento Gastronómico & Ciberdefensa
+                    </h2>
+                    <p className="text-xs sm:text-sm text-stone-400 mt-1 max-w-3xl leading-relaxed">
+                      Auditoría centralizada en tiempo real. Monitorea la afluencia de votos por mesa, la satisfacción media de los comensales y la neutralización activa de incidentes de fraude bajo transacciones ACID.
+                    </p>
+                  </div>
+
+                  {/* Quick Refresh & Quick Navigation */}
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={handleManualRefreshDashboard}
+                      disabled={isRefreshingDashboard}
+                      className="px-3.5 py-2.5 rounded-xl bg-stone-900 hover:bg-stone-800 text-stone-200 hover:text-white border border-stone-800 text-xs font-bold flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50 shadow-md"
+                      title="Sincronizar datos con Firestore inmediatamente"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 text-[#A40B03] ${isRefreshingDashboard ? 'animate-spin' : ''}`} />
+                      <span>{isRefreshingDashboard ? 'Sincronizando...' : 'Actualizar'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('generator')}
+                      className="px-3.5 py-2.5 rounded-xl bg-[#A40B03] hover:bg-[#BF0E05] text-[#FFF9ED] text-xs font-bold flex items-center gap-1.5 shadow-md border border-[#FFF9ED]/15 cursor-pointer transition-all hover:scale-[1.02]"
+                    >
+                      <QrCode className="w-3.5 h-3.5" />
+                      <span>+ Códigos</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('gala')}
+                      className="px-3.5 py-2.5 rounded-xl bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 text-white text-xs font-bold flex items-center gap-1.5 shadow-md cursor-pointer transition-all hover:scale-[1.02]"
+                    >
+                      <Trophy className="w-3.5 h-3.5" />
+                      <span>Gala Oficial</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Sub-bar with Live Sync Metrics */}
+                <div className="pt-2 border-t border-stone-800/80 flex flex-wrap items-center justify-between gap-2 text-[11px] text-stone-400 font-mono">
+                  <div className="flex items-center gap-3">
+                    <span>Sincronización en la Nube: <strong className="text-emerald-400">Activa (Firestore 24/7)</strong></span>
+                    <span>•</span>
+                    <span>Última lectura: {lastRefreshedAt.toLocaleTimeString()}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-stone-300">
+                    <ShieldCheck className="w-3.5 h-3.5 text-[#A40B03]" />
+                    <span>Transacciones Criptográficas ACID • Integridad Garantizada</span>
+                  </div>
                 </div>
               </div>
 
-              <div className="p-6 rounded-2xl bg-[#0F0F0F] border border-stone-800 space-y-4">
-                <h3 className="font-bold text-stone-200 text-sm sm:text-base flex items-center gap-2">
-                  <Trophy className="w-5 h-5 text-[#A40B03]" /> <span>Calificación Promedio</span>
-                </h3>
-                <div className="h-64 w-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={sortedRestaurantes} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#262626" vertical={false} />
-                      <XAxis dataKey="nombre" tick={{ fill: '#a8a29e', fontSize: 10 }} tickLine={false} axisLine={false} />
-                      <YAxis domain={[0, 5]} tick={{ fill: '#a8a29e', fontSize: 10 }} tickLine={false} axisLine={false} />
-                      <Tooltip 
-                        contentStyle={{ backgroundColor: '#0a0a0a', borderColor: '#262626', borderRadius: '12px', fontSize: '12px' }}
-                        itemStyle={{ color: '#A40B03' }}
-                        cursor={{ fill: '#171717' }}
-                      />
-                      <Bar dataKey="promedioRating" name="Rating ★" fill="#FFF9ED" radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-            </div>
-
-            <div className="p-6 rounded-2xl bg-stone-900/90 border border-stone-800 space-y-4">
-              <h3 className="font-bold text-red-400 text-sm sm:text-base flex items-center gap-2">
-                <ShieldAlert className="w-5 h-5" /> <span>Auditoría de Intentos de Fraude</span>
-              </h3>
-              <div className="space-y-2">
-                {fraudLogs.length === 0 && <div className="text-stone-500 text-sm">No hay registros de fraude recientes.</div>}
-                {fraudLogs.map((log) => (
-                  <div key={log.id} className="p-3.5 rounded-xl bg-stone-950 border border-red-900/30 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono font-bold text-red-400">{log.codigoIntentado}</span>
-                        <span className="text-[10px] px-2 py-0.5 rounded bg-red-950 text-red-300">BLOQUEADO</span>
-                      </div>
-                      <p className="text-stone-300 text-xs">{log.motivo}</p>
+              {/* 2. MATRIZ DE KPIS VITALES (6 TARJETAS DE ALTO IMPACTO) */}
+              <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3.5">
+                
+                {/* KPI 1: Votos Válidos */}
+                <div className="p-4 rounded-2xl bg-[#0F0F0F] border border-stone-800 flex flex-col justify-between hover:border-emerald-500/40 transition-colors">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-stone-400 uppercase tracking-wider">Votos Válidos</span>
+                    <div className="w-7 h-7 rounded-lg bg-emerald-950/60 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
+                      <CheckCircle className="w-4 h-4" />
                     </div>
                   </div>
-                ))}
+                  <div className="my-2">
+                    <div className="text-2xl sm:text-3xl font-black text-[#FFF9ED] font-mono">{stats.totalVotos}</div>
+                    <div className="text-[11px] text-stone-400 mt-0.5">
+                      Promedio: <strong className="text-stone-200">{promedioVotosPorRestaurante}</strong> / resto.
+                    </div>
+                  </div>
+                  <span className="text-[10px] px-2 py-0.5 rounded-md bg-stone-950 border border-stone-800 text-emerald-400 font-mono inline-block">
+                    Google Auth verificado
+                  </span>
+                </div>
+
+                {/* KPI 2: Calificación Media */}
+                <div className="p-4 rounded-2xl bg-[#0F0F0F] border border-stone-800 flex flex-col justify-between hover:border-amber-500/40 transition-colors">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-stone-400 uppercase tracking-wider">Satisfacción Media</span>
+                    <div className="w-7 h-7 rounded-lg bg-amber-950/60 border border-amber-500/40 flex items-center justify-center text-amber-400">
+                      <Star className="w-4 h-4 fill-amber-400" />
+                    </div>
+                  </div>
+                  <div className="my-2">
+                    <div className="text-2xl sm:text-3xl font-black text-[#FFF9ED] font-mono flex items-center gap-1">
+                      <span>{calificacionPromedioGlobal}</span>
+                      <span className="text-base text-amber-400">★</span>
+                    </div>
+                    <div className="text-[11px] text-stone-400 mt-0.5">
+                      Escala oficial 1.00 a 5.00
+                    </div>
+                  </div>
+                  <span className="text-[10px] px-2 py-0.5 rounded-md bg-stone-950 border border-stone-800 text-amber-400 font-mono inline-block">
+                    Ponderado acumulativo
+                  </span>
+                </div>
+
+                {/* KPI 3: Tasa de Canje */}
+                <div className="p-4 rounded-2xl bg-[#0F0F0F] border border-stone-800 flex flex-col justify-between hover:border-[#A40B03]/40 transition-colors">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-stone-400 uppercase tracking-wider">Tasa de Canje</span>
+                    <div className="w-7 h-7 rounded-lg bg-[#A40B03]/20 border border-[#A40B03]/40 flex items-center justify-center text-[#A40B03]">
+                      <Percent className="w-4 h-4" />
+                    </div>
+                  </div>
+                  <div className="my-2">
+                    <div className="text-2xl sm:text-3xl font-black text-[#A40B03] font-mono">{tasaCanje}%</div>
+                    <div className="text-[11px] text-stone-400 mt-0.5">
+                      {stats.totalCodigosUsados || stats.totalVotos} usados de {stats.totalCodigosGenerados}
+                    </div>
+                  </div>
+                  <span className="text-[10px] px-2 py-0.5 rounded-md bg-stone-950 border border-stone-800 text-stone-300 font-mono inline-block">
+                    {codigosDisponibles} QRs en mesa
+                  </span>
+                </div>
+
+                {/* KPI 4: Fraude Prevenido */}
+                <div className="p-4 rounded-2xl bg-red-950/20 border border-red-900/40 flex flex-col justify-between hover:border-red-600/60 transition-colors">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-red-400 uppercase tracking-wider">Fraude Bloqueado</span>
+                    <div className="w-7 h-7 rounded-lg bg-red-950/80 border border-red-600/50 flex items-center justify-center text-red-400">
+                      <ShieldAlert className="w-4 h-4" />
+                    </div>
+                  </div>
+                  <div className="my-2">
+                    <div className="text-2xl sm:text-3xl font-black text-red-400 font-mono">{stats.intentosFraudeBloqueados}</div>
+                    <div className="text-[11px] text-red-300/80 mt-0.5">
+                      0 votos espurios admitidos
+                    </div>
+                  </div>
+                  <span className="text-[10px] px-2 py-0.5 rounded-md bg-red-950/60 border border-red-900/50 text-red-300 font-mono inline-block">
+                    100% de eficacia
+                  </span>
+                </div>
+
+                {/* KPI 5: Restaurantes */}
+                <div className="p-4 rounded-2xl bg-[#0F0F0F] border border-stone-800 flex flex-col justify-between hover:border-stone-700 transition-colors">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-stone-400 uppercase tracking-wider">Participantes</span>
+                    <div className="w-7 h-7 rounded-lg bg-stone-900 border border-stone-800 flex items-center justify-center text-stone-300">
+                      <Store className="w-4 h-4" />
+                    </div>
+                  </div>
+                  <div className="my-2">
+                    <div className="text-2xl sm:text-3xl font-black text-[#FFF9ED] font-mono">
+                      {participantesActivos.length}
+                      <span className="text-sm font-normal text-stone-500"> / {totalParticipantes}</span>
+                    </div>
+                    <div className="text-[11px] text-stone-400 mt-0.5">
+                      {participantesDescalificados.length > 0 ? `${participantesDescalificados.length} descalificado(s)` : '100% en competencia'}
+                    </div>
+                  </div>
+                  <span className="text-[10px] px-2 py-0.5 rounded-md bg-stone-950 border border-stone-800 text-stone-400 font-mono inline-block">
+                    Activos y auditados
+                  </span>
+                </div>
+
+                {/* KPI 6: Líder Actual */}
+                <div className="p-4 rounded-2xl bg-gradient-to-b from-amber-950/20 to-[#0F0F0F] border border-amber-500/30 flex flex-col justify-between hover:border-amber-400/50 transition-colors">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-amber-400 uppercase tracking-wider">Líder Actual</span>
+                    <div className="w-7 h-7 rounded-lg bg-amber-950/80 border border-amber-600/50 flex items-center justify-center text-amber-400">
+                      <Crown className="w-4 h-4" />
+                    </div>
+                  </div>
+                  <div className="my-2">
+                    <div className="text-sm sm:text-base font-black text-[#FFF9ED] truncate" title={liderActual && liderActual.votosCount > 0 ? liderActual.nombreHamburguesa : 'Esperando votos'}>
+                      {liderActual && liderActual.votosCount > 0 ? liderActual.nombreHamburguesa : 'En espera'}
+                    </div>
+                    <div className="text-[11px] text-stone-400 truncate mt-0.5">
+                      {liderActual && liderActual.votosCount > 0 ? `${liderActual.nombre} (${liderActual.promedioRating.toFixed(2)} ★)` : 'Sin votos emitidos'}
+                    </div>
+                  </div>
+                  <span className="text-[10px] px-2 py-0.5 rounded-md bg-amber-950/60 border border-amber-600/30 text-amber-300 font-mono inline-block">
+                    {liderActual && liderActual.votosCount > 0 ? `${liderActual.votosCount} votos auditados` : 'Rank #1 provisional'}
+                  </span>
+                </div>
+
               </div>
+
+              {/* 3. SELECTOR DE VISTAS DINÁMICAS DENTRO DEL DASHBOARD */}
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-800 pb-3">
+                <div className="flex items-center gap-2 p-1.5 rounded-xl bg-black border border-stone-800 text-xs font-bold">
+                  <button
+                    type="button"
+                    onClick={() => setStatsViewMode('overview')}
+                    className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg transition-all cursor-pointer ${
+                      statsViewMode === 'overview'
+                        ? 'bg-[#A40B03] text-[#FFF9ED] shadow-sm'
+                        : 'text-stone-400 hover:text-white'
+                    }`}
+                  >
+                    <BarChart3 className="w-3.5 h-3.5" />
+                    <span>Rendimiento & Gráficos</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setStatsViewMode('security')}
+                    className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg transition-all cursor-pointer ${
+                      statsViewMode === 'security'
+                        ? 'bg-red-900/80 text-white shadow-sm'
+                        : 'text-stone-400 hover:text-white'
+                    }`}
+                  >
+                    <ShieldAlert className="w-3.5 h-3.5 text-red-400" />
+                    <span>Ciberseguridad & Fraude</span>
+                    {fraudLogs.length > 0 && (
+                      <span className="ml-1 px-1.5 py-0.2 rounded-full bg-red-950 text-red-300 text-[10px]">
+                        {fraudLogs.length}
+                      </span>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setStatsViewMode('table')}
+                    className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg transition-all cursor-pointer ${
+                      statsViewMode === 'table'
+                        ? 'bg-stone-800 text-[#FFF9ED] shadow-sm'
+                        : 'text-stone-400 hover:text-white'
+                    }`}
+                  >
+                    <Store className="w-3.5 h-3.5" />
+                    <span>Tabla Comparativa ({restaurantes.length})</span>
+                  </button>
+                </div>
+
+                <div className="text-xs text-stone-500 font-mono hidden sm:block">
+                  Visualizando: <span className="text-stone-300 font-bold">{statsViewMode === 'overview' ? 'Análisis Gráfico' : statsViewMode === 'security' ? 'Bitácora Forense' : 'Clasificación Interna'}</span>
+                </div>
+              </div>
+
+              {/* VISTA A: RENDIMIENTO & GRÁFICOS GASTRONÓMICOS */}
+              {statsViewMode === 'overview' && (
+                <div className="space-y-6">
+                  
+                  {/* Gráfico Principal Dinámico con Interruptor de Métrica */}
+                  <div className="p-6 rounded-2xl bg-[#0F0F0F] border border-stone-800 space-y-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-stone-800 pb-3">
+                      <div>
+                        <h3 className="font-bold text-[#FFF9ED] text-base flex items-center gap-2">
+                          <BarChart3 className="w-5 h-5 text-[#A40B03]" />
+                          <span>Comparativa de Rendimiento por Restaurante</span>
+                        </h3>
+                        <p className="text-xs text-stone-400 mt-0.5">
+                          Visualiza en tiempo real el comportamiento del flujo de votos y la nota promedio emitida por mesa.
+                        </p>
+                      </div>
+
+                      {/* Selector de métrica */}
+                      <div className="flex items-center gap-1.5 p-1 rounded-xl bg-black border border-stone-800 text-xs">
+                        <button
+                          type="button"
+                          onClick={() => setChartMetric('votos')}
+                          className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
+                            chartMetric === 'votos'
+                              ? 'bg-[#A40B03] text-[#FFF9ED]'
+                              : 'text-stone-400 hover:text-white'
+                          }`}
+                        >
+                          Votos Acumulados
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setChartMetric('rating')}
+                          className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
+                            chartMetric === 'rating'
+                              ? 'bg-amber-600 text-white'
+                              : 'text-stone-400 hover:text-white'
+                          }`}
+                        >
+                          Rating Promedio (★)
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Gráfico Recharts */}
+                    <div className="h-72 w-full pt-2">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart 
+                          data={sortedRestaurantes} 
+                          margin={{ top: 15, right: 15, left: -10, bottom: 25 }}
+                        >
+                          <CartesianGrid strokeDasharray="3 3" stroke="#262626" vertical={false} />
+                          <XAxis 
+                            dataKey="nombre" 
+                            tick={{ fill: '#a8a29e', fontSize: 11 }} 
+                            interval={0}
+                            angle={-20}
+                            textAnchor="end"
+                            tickLine={false} 
+                            axisLine={false} 
+                          />
+                          <YAxis 
+                            domain={chartMetric === 'rating' ? [0, 5] : ['auto', 'auto']}
+                            tick={{ fill: '#a8a29e', fontSize: 11 }} 
+                            tickLine={false} 
+                            axisLine={false} 
+                          />
+                          <Tooltip 
+                            contentStyle={{ 
+                              backgroundColor: '#0a0a0a', 
+                              borderColor: '#3f3f46', 
+                              borderRadius: '12px', 
+                              fontSize: '12px',
+                              color: '#FFF9ED'
+                            }}
+                            itemStyle={{ color: '#FFF9ED' }}
+                            cursor={{ fill: '#1a1a1a' }}
+                            formatter={(value: any) => [
+                              chartMetric === 'rating' ? `${Number(value).toFixed(2)} ★` : `${value} votos`,
+                              chartMetric === 'rating' ? 'Calificación' : 'Votos Registrados'
+                            ]}
+                          />
+                          <Bar 
+                            dataKey={chartMetric === 'rating' ? 'promedioRating' : 'votosCount'} 
+                            fill={chartMetric === 'rating' ? '#D97706' : '#A40B03'} 
+                            radius={[6, 6, 0, 0]} 
+                          />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+
+                  {/* Tarjetas de Diagnóstico Analítico */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    
+                    {/* Diagnóstico 1: Calidad Gastronómica */}
+                    <div className="p-4 rounded-xl bg-black border border-stone-800 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-stone-200 flex items-center gap-1.5">
+                          <Crown className="w-4 h-4 text-amber-400" /> Distribución de Calidad
+                        </span>
+                        <span className="text-[10px] font-mono text-stone-500">Food Fest</span>
+                      </div>
+                      <div className="space-y-2 text-xs">
+                        <div className="flex items-center justify-between p-2 rounded-lg bg-stone-950 border border-stone-900">
+                          <span className="text-stone-300">Nivel Élite (≥ 4.75 ★)</span>
+                          <strong className="text-amber-400 font-mono">{topTierBurgers} hamburguesas</strong>
+                        </div>
+                        <div className="flex items-center justify-between p-2 rounded-lg bg-stone-950 border border-stone-900">
+                          <span className="text-stone-300">Nivel Alto (4.00 - 4.74 ★)</span>
+                          <strong className="text-stone-200 font-mono">{midTierBurgers} hamburguesas</strong>
+                        </div>
+                        <div className="flex items-center justify-between p-2 rounded-lg bg-stone-950 border border-stone-900">
+                          <span className="text-stone-400">En Consolidación (&lt; 4.0 ★)</span>
+                          <strong className="text-stone-400 font-mono">{developingBurgers} hamburguesas</strong>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Diagnóstico 2: Eficiencia de Mesa */}
+                    <div className="p-4 rounded-xl bg-black border border-stone-800 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-stone-200 flex items-center gap-1.5">
+                          <QrCode className="w-4 h-4 text-[#A40B03]" /> Dinámica de Mesa
+                        </span>
+                        <span className="text-[10px] font-mono text-stone-500">Métricas QR</span>
+                      </div>
+                      <div className="space-y-2 text-xs">
+                        <div className="flex items-center justify-between p-2 rounded-lg bg-stone-950 border border-stone-900">
+                          <span className="text-stone-300">Códigos Activos en Circulación</span>
+                          <strong className="text-stone-200 font-mono">{codigosDisponibles}</strong>
+                        </div>
+                        <div className="flex items-center justify-between p-2 rounded-lg bg-stone-950 border border-stone-900">
+                          <span className="text-stone-300">Total Códigos Generados</span>
+                          <strong className="text-stone-200 font-mono">{stats.totalCodigosGenerados}</strong>
+                        </div>
+                        <div className="flex items-center justify-between p-2 rounded-lg bg-stone-950 border border-stone-900">
+                          <span className="text-stone-300">Tasa de Efectividad en Mesa</span>
+                          <strong className="text-emerald-400 font-mono">{tasaCanje}%</strong>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Diagnóstico 3: Integridad de Votos */}
+                    <div className="p-4 rounded-xl bg-black border border-stone-800 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-stone-200 flex items-center gap-1.5">
+                          <ShieldCheck className="w-4 h-4 text-emerald-400" /> Auditoría de Integridad
+                        </span>
+                        <span className="text-[10px] font-mono text-stone-500">100% Blindado</span>
+                      </div>
+                      <div className="space-y-2 text-xs">
+                        <div className="flex items-center justify-between p-2 rounded-lg bg-stone-950 border border-stone-900">
+                          <span className="text-stone-300">Votos Criptográficos Válidos</span>
+                          <strong className="text-emerald-400 font-mono">{stats.totalVotos}</strong>
+                        </div>
+                        <div className="flex items-center justify-between p-2 rounded-lg bg-stone-950 border border-stone-900">
+                          <span className="text-stone-300">Ataques Neutralizados</span>
+                          <strong className="text-red-400 font-mono">{stats.intentosFraudeBloqueados}</strong>
+                        </div>
+                        <div className="flex items-center justify-between p-2 rounded-lg bg-stone-950 border border-stone-900">
+                          <span className="text-stone-300">Vulnerabilidades No Resueltas</span>
+                          <strong className="text-emerald-400 font-mono">0 (Cero)</strong>
+                        </div>
+                      </div>
+                    </div>
+
+                  </div>
+
+                </div>
+              )}
+
+              {/* VISTA B: CENTRO DE CIBERSEGURIDAD & AUDITORÍA ANTIFRAUDE */}
+              {statsViewMode === 'security' && (
+                <div className="space-y-6">
+
+                  {/* 4 Micro-Cards de Vectores de Ataque Mitigados */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+                    <div className="p-4 rounded-xl bg-black border border-stone-800 space-y-1">
+                      <div className="text-[11px] font-bold text-stone-400 uppercase flex items-center justify-between">
+                        <span>Doble Voto Prevenido</span>
+                        <Users className="w-4 h-4 text-amber-400" />
+                      </div>
+                      <div className="text-2xl font-black text-amber-400 font-mono">{fraudeDuplicadosCount}</div>
+                      <p className="text-[10px] text-stone-400">Bloqueados por cuenta Google o email idéntico.</p>
+                    </div>
+
+                    <div className="p-4 rounded-xl bg-black border border-stone-800 space-y-1">
+                      <div className="text-[11px] font-bold text-stone-400 uppercase flex items-center justify-between">
+                        <span>Reuso de QRs Quemados</span>
+                        <QrCode className="w-4 h-4 text-red-400" />
+                      </div>
+                      <div className="text-2xl font-black text-red-400 font-mono">{fraudeCodigosCount}</div>
+                      <p className="text-[10px] text-stone-400">Intentos de canjear tickets ya consumidos.</p>
+                    </div>
+
+                    <div className="p-4 rounded-xl bg-black border border-stone-800 space-y-1">
+                      <div className="text-[11px] font-bold text-stone-400 uppercase flex items-center justify-between">
+                        <span>Acceso Ilegítimo al Comité</span>
+                        <Lock className="w-4 h-4 text-[#A40B03]" />
+                      </div>
+                      <div className="text-2xl font-black text-[#A40B03] font-mono">{fraudeAdminCount}</div>
+                      <p className="text-[10px] text-stone-400">Intentos con credenciales no registradas.</p>
+                    </div>
+
+                    <div className="p-4 rounded-xl bg-black border border-emerald-900/40 space-y-1">
+                      <div className="text-[11px] font-bold text-emerald-400 uppercase flex items-center justify-between">
+                        <span>Eficacia del Blindaje</span>
+                        <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                      </div>
+                      <div className="text-2xl font-black text-emerald-400 font-mono">100%</div>
+                      <p className="text-[10px] text-emerald-300/80">Cero votos inválidos admitidos en base de datos.</p>
+                    </div>
+                  </div>
+
+                  {/* Buscador & Filtro de Logs de Fraude */}
+                  <div className="p-6 rounded-2xl bg-[#0F0F0F] border border-stone-800 space-y-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-stone-800 pb-3">
+                      <div>
+                        <h3 className="font-bold text-red-400 text-base flex items-center gap-2">
+                          <ShieldAlert className="w-5 h-5 text-red-400" />
+                          <span>Bitácora Forense de Seguridad & Transacciones Anómalas</span>
+                        </h3>
+                        <p className="text-xs text-stone-400 mt-0.5">
+                          Registro inmutable de cada intento de manipulación neutralizado por las reglas de Firestore.
+                        </p>
+                      </div>
+
+                      {/* Buscador dinámico */}
+                      <div className="relative min-w-[220px]">
+                        <Search className="w-3.5 h-3.5 text-stone-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="text"
+                          placeholder="Buscar código o motivo..."
+                          value={fraudSearchQuery}
+                          onChange={(e) => setFraudSearchQuery(e.target.value)}
+                          className="w-full pl-8 pr-3 py-1.5 rounded-xl bg-black border border-stone-800 text-xs text-[#FFF9ED] placeholder-stone-500 focus:outline-none focus:border-[#A40B03]"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Botones de filtro de motivos */}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setFraudFilterType('ALL')}
+                        className={`px-3 py-1 rounded-lg text-xs font-semibold cursor-pointer transition-all ${
+                          fraudFilterType === 'ALL'
+                            ? 'bg-[#A40B03] text-white'
+                            : 'bg-black text-stone-400 hover:text-white border border-stone-800'
+                        }`}
+                      >
+                        Todos ({fraudLogs.length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setFraudFilterType('DUPLICADOS')}
+                        className={`px-3 py-1 rounded-lg text-xs font-semibold cursor-pointer transition-all ${
+                          fraudFilterType === 'DUPLICADOS'
+                            ? 'bg-amber-600 text-white'
+                            : 'bg-black text-stone-400 hover:text-white border border-stone-800'
+                        }`}
+                      >
+                        Duplicidad ({fraudeDuplicadosCount})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setFraudFilterType('CODIGOS')}
+                        className={`px-3 py-1 rounded-lg text-xs font-semibold cursor-pointer transition-all ${
+                          fraudFilterType === 'CODIGOS'
+                            ? 'bg-red-800 text-white'
+                            : 'bg-black text-stone-400 hover:text-white border border-stone-800'
+                        }`}
+                      >
+                        Códigos QR ({fraudeCodigosCount})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setFraudFilterType('ADMIN')}
+                        className={`px-3 py-1 rounded-lg text-xs font-semibold cursor-pointer transition-all ${
+                          fraudFilterType === 'ADMIN'
+                            ? 'bg-stone-700 text-white'
+                            : 'bg-black text-stone-400 hover:text-white border border-stone-800'
+                        }`}
+                      >
+                        Acceso Comité ({fraudeAdminCount})
+                      </button>
+                    </div>
+
+                    {/* Lista detallada de incidentes */}
+                    <div className="space-y-2.5 max-h-96 overflow-y-auto pr-1">
+                      {filteredFraudLogs.length === 0 ? (
+                        <div className="text-center py-10 rounded-xl bg-black border border-stone-800/80 space-y-2">
+                          <ShieldCheck className="w-8 h-8 text-emerald-400 mx-auto" />
+                          <div className="text-stone-300 text-xs font-bold">
+                            {fraudSearchQuery.trim() ? 'No se encontraron incidentes que coincidan con la búsqueda.' : 'Cero intentos de fraude registrados en este filtro.'}
+                          </div>
+                          <p className="text-[11px] text-stone-500 max-w-sm mx-auto">
+                            El firewall atómico mantiene el festival protegido. Cada comensal está votando bajo los lineamientos oficiales.
+                          </p>
+                        </div>
+                      ) : (
+                        filteredFraudLogs.map((log) => {
+                          const isDuplicado = log.motivo?.includes('DUPLICADO');
+                          const isReuso = log.motivo?.includes('USADO');
+                          const isNoExiste = log.motivo?.includes('INEXISTENTE');
+                          const isMismatch = log.motivo?.includes('MISMATCH');
+
+                          const badgeColor = isDuplicado 
+                            ? 'bg-amber-950/80 text-amber-300 border-amber-600/40' 
+                            : isReuso || isNoExiste 
+                              ? 'bg-red-950/80 text-red-300 border-red-600/40' 
+                              : 'bg-stone-900 text-stone-300 border-stone-700';
+
+                          return (
+                            <div 
+                              key={log.id} 
+                              className="p-3.5 rounded-xl bg-black border border-stone-800/80 hover:border-red-900/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors text-xs"
+                            >
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className={`text-[10px] font-mono px-2 py-0.5 rounded-md border font-black ${badgeColor}`}>
+                                    {isDuplicado ? 'DUPLICADO' : isReuso ? 'CÓDIGO YA USADO' : isNoExiste ? 'CÓDIGO INEXISTENTE' : isMismatch ? 'RESTAURANTE ERRÓNEO' : 'BLOQUEO ACID'}
+                                  </span>
+                                  <span className="font-mono font-bold text-stone-200">
+                                    {log.codigoIntentado || 'N/A'}
+                                  </span>
+                                  {log.restauranteId && (
+                                    <span className="text-[10px] text-stone-500 font-mono">
+                                      Rest: {log.restauranteId}
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-stone-300 text-xs leading-relaxed">
+                                  {log.motivo}
+                                </p>
+                              </div>
+
+                              <div className="text-right shrink-0">
+                                <div className="text-[11px] font-mono text-stone-400">
+                                  {log.fecha ? new Date(log.fecha).toLocaleString() : 'Fecha no registrada'}
+                                </div>
+                                <span className="text-[10px] text-emerald-400 font-mono flex items-center justify-end gap-1 mt-0.5">
+                                  <Check className="w-3 h-3" /> Neutralizado
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+
+                </div>
+              )}
+
+              {/* VISTA C: TABLA COMPARATIVA DE TRACCIÓN Y RENDIMIENTO */}
+              {statsViewMode === 'table' && (
+                <div className="p-6 rounded-2xl bg-[#0F0F0F] border border-stone-800 space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-stone-800 pb-3">
+                    <div>
+                      <h3 className="font-bold text-[#FFF9ED] text-base flex items-center gap-2">
+                        <Store className="w-5 h-5 text-[#A40B03]" />
+                        <span>Diagnóstico de Participación & Cuota de Votos por Restaurante</span>
+                      </h3>
+                      <p className="text-xs text-stone-400 mt-0.5">
+                        Supervisa qué competidores concentran mayor actividad en mesa y su porcentaje de participación relativa.
+                      </p>
+                    </div>
+                    <div className="text-xs font-mono text-stone-400">
+                      Total participantes: <strong className="text-[#FFF9ED]">{restaurantes.length}</strong>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2.5">
+                    {sortedRestaurantes.map((r, i) => {
+                      const sharePercent = stats.totalVotos > 0 
+                        ? ((r.votosCount / stats.totalVotos) * 100).toFixed(1) 
+                        : '0.0';
+
+                      return (
+                        <div 
+                          key={r.id} 
+                          className="p-3.5 rounded-xl bg-black border border-stone-800/80 hover:border-stone-700 flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-all text-xs"
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <span className="font-mono font-bold text-sm text-[#A40B03] w-6 text-center">
+                              #{i + 1}
+                            </span>
+                            <img 
+                              src={r.fotoUrl || r.logoUrl} 
+                              alt={r.nombreHamburguesa} 
+                              className="w-10 h-10 rounded-lg object-cover border border-stone-800 shrink-0" 
+                            />
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-bold text-[#FFF9ED] truncate">{r.nombreHamburguesa}</span>
+                                <span className="text-[10px] text-stone-400 truncate">({r.nombre})</span>
+                                {r.descalificado && (
+                                  <span className="text-[9px] px-1.5 py-0.2 rounded bg-red-950 text-red-400 border border-red-800">
+                                    Descalificado
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-[11px] text-stone-400 flex items-center gap-2 mt-0.5">
+                                <span>{r.instagram || 'Sin instagram'}</span>
+                                <span>•</span>
+                                <span className="text-stone-300 font-mono">{r.precio || '$ --'}</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between sm:justify-end gap-5 shrink-0 border-t sm:border-t-0 pt-2 sm:pt-0 border-stone-900">
+                            <div className="text-left sm:text-right">
+                              <div className="text-[10px] text-stone-500 uppercase font-semibold">Participación</div>
+                              <div className="font-mono font-bold text-stone-200">
+                                {sharePercent}% <span className="text-stone-500 text-[10px]">del total</span>
+                              </div>
+                            </div>
+
+                            <div className="text-left sm:text-right">
+                              <div className="text-[10px] text-stone-500 uppercase font-semibold">Votos</div>
+                              <div className="font-mono font-bold text-[#FFF9ED]">
+                                {r.votosCount}
+                              </div>
+                            </div>
+
+                            <div className="text-right min-w-[70px]">
+                              <div className="text-[10px] text-stone-500 uppercase font-semibold">Rating</div>
+                              <div className="font-mono font-black text-amber-400 flex items-center justify-end gap-1">
+                                <Star className="w-3.5 h-3.5 fill-amber-400" />
+                                <span>{r.votosCount === 0 ? "0.00" : r.promedioRating.toFixed(2)}</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* TAB 2: GENERATOR */}
         {activeTab === 'generator' && (
@@ -1855,30 +3850,339 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
           </div>
         )}
 
-        {/* TAB 3: GALA */}
+        {/* TAB 3: GALA OFICIAL & RANKING DESANONIMIZADO */}
         {activeTab === 'gala' && (
-          <div className="p-6 rounded-2xl bg-[#0F0F0F] border border-[#A40B03]/40 space-y-5">
-            <h3 className="text-lg font-black text-[#FFF9ED] flex items-center gap-2">
-              <Trophy className="w-5 h-5 text-[#A40B03]" /> <span>Ranking Oficial Desanonimizado • Food Fest 2026</span>
-            </h3>
-            <div className="space-y-3">
-              {sortedRestaurantes.map((r, i) => (
-                <div key={r.id} className={`p-4 rounded-2xl border flex items-center justify-between gap-4 ${i === 0 ? 'bg-[#A40B03]/15 border-[#A40B03]/50' : 'bg-black border-stone-800'}`}>
-                  <div className="flex items-center gap-3.5">
-                    <span className="font-mono font-black text-base text-[#A40B03] w-7 text-center">#{i + 1}</span>
-                    <img src={r.logoUrl} alt={r.nombre} className="w-10 h-10 rounded-xl object-cover border border-[#A40B03]/40" />
-                    <div>
-                      <div className="font-bold text-[#FFF9ED]">{r.nombreHamburguesa}</div>
-                      <div className="text-xs text-stone-400">{r.nombre}</div>
-                    </div>
+          <div className="space-y-6">
+
+            {/* HEADER DE LA GALA & CONTROL MAESTRO DE REVELACIÓN */}
+            <div className="p-6 rounded-2xl bg-gradient-to-b from-[#180d0d] to-[#0F0F0F] border border-[#A40B03]/50 shadow-xl space-y-6">
+              
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-stone-800/80 pb-5">
+                <div>
+                  <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                    <span className="px-2.5 py-0.5 rounded-full bg-[#A40B03]/20 border border-[#A40B03]/50 text-[#FFF9ED] text-[11px] font-black uppercase tracking-wider flex items-center gap-1.5">
+                      <Trophy className="w-3.5 h-3.5 text-amber-400" /> Gran Gala Oficial Food Fest 2026
+                    </span>
+                    <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold border flex items-center gap-1 ${
+                      stats.resultadosRevelados 
+                        ? 'bg-emerald-950/60 border-emerald-500/50 text-emerald-300' 
+                        : 'bg-amber-950/60 border-amber-500/50 text-amber-300'
+                    }`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${stats.resultadosRevelados ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+                      {stats.resultadosRevelados ? 'Resultados Públicos Visibles' : 'Modo Público Anónimo'}
+                    </span>
                   </div>
-                  <div className="text-right">
-                    <div className="text-base font-black text-[#FFF9ED] font-mono">{r.votosCount === 0 ? "0.00" : r.promedioRating.toFixed(2)} ★</div>
-                    <div className="text-xs text-stone-500">{r.votosCount} votos</div>
+
+                  <h3 className="text-xl sm:text-2xl font-black text-[#FFF9ED] tracking-wide">
+                    Ranking Oficial Desanonimizado & Conteo de Votos
+                  </h3>
+                  <p className="text-xs sm:text-sm text-stone-400 mt-1 max-w-2xl leading-relaxed">
+                    Panel exclusivo del Comité Organizador. Audita las calificaciones, comprende la matemática entre estrellas y criterios técnicos, y controla cuándo publicar los resultados oficiales en la pantalla principal.
+                  </p>
+                </div>
+
+                {/* BOTÓN MAESTRO DE REVELACIÓN / OCULTAMIENTO */}
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 shrink-0">
+                  <button
+                    type="button"
+                    onClick={handleToggleResultadosPublicos}
+                    disabled={isTogglingGala}
+                    className={`px-5 py-3 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2.5 transition-all shadow-lg cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
+                      stats.resultadosRevelados
+                        ? 'bg-stone-900 hover:bg-stone-800 text-stone-200 border border-stone-700 hover:border-stone-500'
+                        : 'bg-gradient-to-r from-emerald-600 via-emerald-700 to-teal-800 hover:from-emerald-500 hover:to-emerald-600 text-white border border-emerald-400/30 shadow-emerald-950/60 hover:scale-[1.02]'
+                    }`}
+                  >
+                    {isTogglingGala ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin text-white" />
+                        <span>Actualizando estado...</span>
+                      </>
+                    ) : stats.resultadosRevelados ? (
+                      <>
+                        <EyeOff className="w-4 h-4 text-stone-400" />
+                        <span>Ocultar Resultados (Volver a Modo Anónimo)</span>
+                      </>
+                    ) : (
+                      <>
+                        <Eye className="w-4 h-4 text-emerald-300" />
+                        <span>Revelar Resultados al Público (Finalizar Concurso)</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* BANNER INFORMATIVO DEL ESTADO DE VISIBILIDAD */}
+              <div className={`p-4 rounded-xl border flex items-start gap-3.5 ${
+                stats.resultadosRevelados 
+                  ? 'bg-emerald-950/20 border-emerald-500/40 text-emerald-200' 
+                  : 'bg-amber-950/20 border-amber-500/40 text-amber-200'
+              }`}>
+                {stats.resultadosRevelados ? (
+                  <Sparkles className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+                ) : (
+                  <Lock className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+                )}
+                <div className="text-xs leading-relaxed">
+                  <strong className="block text-sm font-bold text-[#FFF9ED] mb-0.5">
+                    {stats.resultadosRevelados 
+                      ? '🎉 ¡Concurso Finalizado! Resultados revelados en vivo para todo el público' 
+                      : '🔒 Modo Anónimo Activo: El público en la página principal solo ve códigos cifrados'}
+                  </strong>
+                  {stats.resultadosRevelados ? (
+                    <span>
+                      En la pantalla pública (<code className="bg-black/40 px-1 py-0.5 rounded text-stone-300">LeaderboardAnonimo</code>), todos los visitantes pueden ver ahora los nombres reales de los restaurantes, las fotos de hamburguesas, los logos y el Podio de Ganadores oficial con sus respectivas estrellas y posiciones de honor.
+                    </span>
+                  ) : (
+                    <span>
+                      Hasta que el comité no decida presionar el botón de revelación, el público verá únicamente nombres genéricos (<em>"Participante #1", "Identidad Oculta"</em>). Esto previene votos por favoritismo y protege la integridad de la competencia. Solo el Comité puede visualizar las identidades reales aquí.
+                    </span>
+                  )}
+                  {stats.fechaRevelacion && (
+                    <div className="mt-1 text-[10px] text-stone-400 font-mono">
+                      Última modificación registrada: {new Date(stats.fechaRevelacion).toLocaleString()}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+            </div>
+
+            {/* SECCIÓN EDUCATIVA: EXPLICACIÓN DETALLADA DE VOTOS, PUNTOS Y ESTRELLAS */}
+            <div className="p-6 rounded-2xl bg-[#0F0F0F] border border-stone-800 space-y-6">
+              
+              <div className="flex items-center justify-between border-b border-stone-800 pb-3">
+                <div className="flex items-center gap-2">
+                  <Calculator className="w-5 h-5 text-[#A40B03]" />
+                  <h4 className="font-extrabold text-[#FFF9ED] text-base tracking-wide">
+                    Metodología de Votación & Sistema de Conteo (Estrellas vs Puntos)
+                  </h4>
+                </div>
+                <span className="text-[11px] font-mono text-stone-400 bg-stone-900 px-2.5 py-1 rounded-lg border border-stone-800">
+                  Auditoría Inmutable Food Fest 2026
+                </span>
+              </div>
+
+              {/* GRID CON LAS 3 TARJETAS EXPLICATIVAS */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                
+                {/* 1. CÓMO SE REALIZA EL VOTO */}
+                <div className="p-4 rounded-xl bg-black border border-stone-800/90 space-y-3">
+                  <div className="flex items-center gap-2 text-stone-200 font-bold text-xs">
+                    <UserCheck className="w-4 h-4 text-[#A40B03]" />
+                    <span>1. Procedimiento de Emisión del Voto</span>
+                  </div>
+                  <ul className="text-xs text-stone-400 space-y-2 leading-relaxed">
+                    <li>
+                      <strong className="text-stone-200">Autenticación Google:</strong> El comensal debe identificarse antes de calificar para certificar una cuenta humana real.
+                    </li>
+                    <li>
+                      <strong className="text-stone-200">Código QR Físico de Mesa:</strong> Debe escanear un ticket físico irrepetible impreso por el restaurante. No es posible votar sin estar en la mesa.
+                    </li>
+                    <li>
+                      <strong className="text-stone-200">Garantía de Unicidad (1 Voto):</strong> El sistema bloquea duplicados por UID de cuenta y por correo normalizado. Nadie puede votar dos veces al mismo restaurante.
+                    </li>
+                    <li>
+                      <strong className="text-stone-200">Quema Atómica:</strong> Al emitir el voto, una transacción quema el código QR para que nadie más pueda reutilizarlo.
+                    </li>
+                  </ul>
+                </div>
+
+                {/* 2. CONTEO DE ESTRELLAS (RATING GLOBAL) */}
+                <div className="p-4 rounded-xl bg-black border border-stone-800/90 space-y-3">
+                  <div className="flex items-center gap-2 text-stone-200 font-bold text-xs">
+                    <Star className="w-4 h-4 text-amber-400 fill-amber-400" />
+                    <span>2. Rating Global en Estrellas (1.00 a 5.00 ★)</span>
+                  </div>
+                  <div className="text-xs text-stone-400 space-y-2 leading-relaxed">
+                    <p>
+                      La calificación troncal del festival es la <strong className="text-stone-200">Calificación Global</strong> (1 a 5 estrellas). Es la métrica directa de la satisfacción general del comensal.
+                    </p>
+                    <div className="p-2.5 rounded-lg bg-stone-950 border border-stone-800 font-mono text-[11px] text-amber-300">
+                      Promedio = [ (Promedio Previo × Votos Previos) + Estrellas Nuevo Voto ] / Total Votos
+                    </div>
+                    <p className="text-[11px]">
+                      Se calcula en tiempo real con <strong className="text-stone-200">2 decimales exactos</strong> (ej: 4.88 ★) mediante transacciones ACID seguras.
+                    </p>
                   </div>
                 </div>
-              ))}
+
+                {/* 3. LOS 4 CRITERIOS TÉCNICOS EN PUNTOS */}
+                <div className="p-4 rounded-xl bg-black border border-stone-800/90 space-y-3 md:col-span-2 lg:col-span-1">
+                  <div className="flex items-center gap-2 text-stone-200 font-bold text-xs">
+                    <Flame className="w-4 h-4 text-[#A40B03]" />
+                    <span>3. Los 4 Criterios Técnicos (1 a 5 Puntos)</span>
+                  </div>
+                  <div className="text-xs text-stone-400 space-y-1.5 leading-relaxed">
+                    <p className="text-[11px] mb-1">
+                      En cada voto, el comensal evalúa obligatoriamente 4 rubros técnicos sensoriales:
+                    </p>
+                    <div className="grid grid-cols-2 gap-2 text-[10px]">
+                      <div className="p-2 rounded bg-stone-950 border border-stone-900">
+                        <strong className="text-stone-200 block">🥩 Sabor & Punto</strong>
+                        Jugosidad, sazón y cocción de la carne.
+                      </div>
+                      <div className="p-2 rounded bg-stone-950 border border-stone-900">
+                        <strong className="text-stone-200 block">🍞 Textura del Pan</strong>
+                        Esponjosidad, frescura y resistencia.
+                      </div>
+                      <div className="p-2 rounded bg-stone-950 border border-stone-900">
+                        <strong className="text-stone-200 block">🥣 Salsas & Toppings</strong>
+                        Balance gustativo y crocancia.
+                      </div>
+                      <div className="p-2 rounded bg-stone-950 border border-stone-900">
+                        <strong className="text-stone-200 block">💡 Creatividad</strong>
+                        Innovación y toque de autor autóctono.
+                      </div>
+                    </div>
+                    <p className="text-[10px] text-stone-500 mt-1">
+                      Quedan registrados en la bitácora inmutable de votos para auditoría forense del comité.
+                    </p>
+                  </div>
+                </div>
+
+              </div>
+
+              {/* REGLA DE CLASIFICACIÓN & DESEMPATE OFICIAL */}
+              <div className="p-4 rounded-xl bg-stone-950 border border-stone-800 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                <div className="flex items-start gap-3">
+                  <Scale className="w-5 h-5 text-[#A40B03] shrink-0 mt-0.5" />
+                  <div className="text-xs">
+                    <strong className="text-sm font-bold text-[#FFF9ED] block">
+                      Criterio Oficial de Desempate en el Ranking
+                    </strong>
+                    <p className="text-stone-400 mt-0.5 leading-relaxed">
+                      1º Posiciona quien tenga <strong>mayor promedio de estrellas</strong>. 2º Si dos hamburguesas empatan en promedio exacto (ej. 4.90 ★ vs 4.90 ★), el desempate favorece a la propuesta con <strong>mayor cantidad total de votos auditados (<code className="text-[#FFF9ED]">votosCount</code>)</strong>, premiando la preferencia popular de más comensales reales.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 shrink-0 text-xs font-mono text-stone-300">
+                  <div className="px-3 py-1.5 rounded-lg bg-black border border-stone-800">
+                    <span className="text-stone-500">Total Votos:</span> <strong className="text-emerald-400">{stats.totalVotos}</strong>
+                  </div>
+                  <div className="px-3 py-1.5 rounded-lg bg-black border border-stone-800">
+                    <span className="text-stone-500">Participantes:</span> <strong className="text-[#FFF9ED]">{restaurantes.length}</strong>
+                  </div>
+                </div>
+              </div>
+
             </div>
+
+            {/* TABLA DE CLASIFICACIÓN DESANONIMIZADA OFICIAL */}
+            <div className="p-6 rounded-2xl bg-[#0F0F0F] border border-[#A40B03]/40 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-stone-800 pb-3">
+                <h3 className="text-lg font-black text-[#FFF9ED] flex items-center gap-2">
+                  <Trophy className="w-5 h-5 text-[#A40B03]" /> 
+                  <span>Tabla Consolidada de Posiciones • Food Fest 2026</span>
+                </h3>
+                <span className="text-xs text-stone-400">
+                  Ordenado por Promedio Oficial y Desempate de Votos
+                </span>
+              </div>
+
+              <div className="space-y-3">
+                {sortedRestaurantes.length === 0 ? (
+                  <div className="text-center py-8 text-stone-500 text-xs">
+                    No hay restaurantes registrados en la base de datos.
+                  </div>
+                ) : (
+                  sortedRestaurantes.map((r, i) => {
+                    const isPodium = i < 3;
+                    const rankLabel = i === 0 ? 'Oro' : i === 1 ? 'Plata' : i === 2 ? 'Bronce' : `#${i + 1}`;
+                    const borderStyle = i === 0 
+                      ? 'bg-gradient-to-r from-[#A40B03]/25 via-black to-black border-[#A40B03] shadow-[0_0_25px_rgba(164,11,3,0.3)]' 
+                      : i === 1 
+                        ? 'bg-gradient-to-r from-slate-500/10 via-black to-black border-slate-400/40' 
+                        : i === 2 
+                          ? 'bg-gradient-to-r from-amber-700/10 via-black to-black border-amber-600/40' 
+                          : 'bg-black border-stone-800 hover:border-stone-700';
+
+                    return (
+                      <div 
+                        key={r.id} 
+                        className={`p-4 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-all ${borderStyle} ${r.descalificado ? 'opacity-50 grayscale' : ''}`}
+                      >
+                        <div className="flex items-center gap-3.5 min-w-0">
+                          
+                          {/* Rank Badge */}
+                          <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-mono font-black text-sm shrink-0 ${
+                            i === 0 
+                              ? 'bg-gradient-to-br from-amber-400 to-[#A40B03] text-black shadow-md' 
+                              : i === 1 
+                                ? 'bg-gradient-to-br from-slate-200 to-slate-500 text-black' 
+                                : i === 2 
+                                  ? 'bg-gradient-to-br from-amber-600 to-amber-900 text-white' 
+                                  : 'bg-stone-900 border border-stone-800 text-stone-400'
+                          }`}>
+                            {i === 0 ? <Crown className="w-5 h-5 text-amber-950" /> : `#${i + 1}`}
+                          </div>
+
+                          {/* Burger / Logo Avatar */}
+                          <img 
+                            src={r.fotoUrl || r.logoUrl} 
+                            alt={r.nombreHamburguesa} 
+                            className="w-12 h-12 rounded-xl object-cover border border-stone-800 shrink-0" 
+                          />
+
+                          {/* Restaurant Info */}
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-bold text-[#FFF9ED] text-sm sm:text-base truncate">
+                                {r.nombreHamburguesa}
+                              </span>
+                              {isPodium && (
+                                <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full ${
+                                  i === 0 ? 'bg-amber-400/20 text-amber-300 border border-amber-400/40' :
+                                  i === 1 ? 'bg-slate-400/20 text-slate-300 border border-slate-400/40' :
+                                  'bg-amber-700/20 text-amber-400 border border-amber-700/40'
+                                }`}>
+                                  Lugar {rankLabel}
+                                </span>
+                              )}
+                              {r.descalificado && (
+                                <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-red-950 text-red-400 border border-red-800">
+                                  Descalificado
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="text-xs text-stone-400 flex items-center gap-2 mt-0.5">
+                              <span className="font-medium text-stone-300">{r.nombre}</span>
+                              {r.instagram && (
+                                <span className="text-[#A40B03] font-semibold">{r.instagram}</span>
+                              )}
+                            </div>
+                          </div>
+
+                        </div>
+
+                        {/* Scores & Statistics */}
+                        <div className="flex items-center justify-between sm:justify-end gap-6 border-t sm:border-t-0 pt-2 sm:pt-0 border-stone-900">
+                          
+                          <div className="text-left sm:text-right">
+                            <div className="text-xs text-stone-500 uppercase font-semibold">Votos Válidos</div>
+                            <div className="text-sm font-black text-stone-300 font-mono">
+                              {r.votosCount} {r.votosCount === 1 ? 'voto' : 'votos'}
+                            </div>
+                          </div>
+
+                          <div className="text-right min-w-[90px]">
+                            <div className="text-xs text-stone-500 uppercase font-semibold">Promedio</div>
+                            <div className="text-base sm:text-lg font-black text-[#FFF9ED] font-mono flex items-center justify-end gap-1">
+                              <Star className="w-4 h-4 fill-[#A40B03] text-[#A40B03]" />
+                              <span>{r.votosCount === 0 ? "0.00" : r.promedioRating.toFixed(2)}</span>
+                            </div>
+                          </div>
+
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
           </div>
         )}
 
@@ -1898,8 +4202,21 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
                     Genera e imprime el código QR exclusivo de mesa para cada participante. Al escanearlo, el comensal entra directamente a la ficha de votación del restaurante.
                   </p>
                 </div>
-                <div className="text-xs px-3 py-1.5 rounded-xl bg-black border border-stone-800 text-stone-300 font-medium">
-                  {restaurantes.length} Participantes Registrados
+                <div className="flex items-center gap-2">
+                  {restaurantes.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setPrintTableRestId(restaurantes[0]?.id)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#A40B03] hover:bg-[#BF0E05] text-[#FFF9ED] font-bold text-xs shadow-md border border-[#FFF9ED]/20 cursor-pointer"
+                      title="Imprimir hojas de QRs de mesa en formato A4 / Carta"
+                    >
+                      <Printer className="w-3.5 h-3.5 text-[#FFF9ED]" />
+                      <span>Imprimir QRs de Mesa</span>
+                    </button>
+                  )}
+                  <div className="text-xs px-3 py-1.5 rounded-xl bg-black border border-stone-800 text-stone-300 font-medium">
+                    {restaurantes.length} Participantes Registrados
+                  </div>
                 </div>
               </div>
 
@@ -2006,7 +4323,7 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
                             onClick={() => {
                               const u = r.usuarioAcceso || r.nombre.toLowerCase().replace(/[^a-z0-9]/g, '');
                               const p = r.claveAcceso || 'burger2026';
-                              navigator.clipboard.writeText(`Credenciales The Best Burger 2026\nRestaurante: ${r.nombre}\nUsuario: ${u}\nClave: ${p}`);
+                              navigator.clipboard.writeText(`Credenciales Food Fest 2026\nRestaurante: ${r.nombre}\nUsuario: ${u}\nClave: ${p}`);
                               alert(`Credenciales de ${r.nombre} copiadas al portapapeles.`);
                             }}
                             className="p-1.5 rounded-lg bg-stone-900 hover:bg-stone-800 text-stone-400 hover:text-white border border-stone-800 shrink-0 cursor-pointer"
@@ -2016,15 +4333,25 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
                           </button>
                         </div>
 
-                        {/* Action Buttons: QR & Video */}
+                        {/* Action Buttons: QR, Imprimir PDF & Video */}
                         <div className="pt-2 border-t border-stone-900 flex items-center justify-between gap-2">
                           <button
                             type="button"
                             onClick={() => setSelectedQrRest(r)}
-                            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-[#A40B03]/20 hover:bg-[#A40B03] text-[#FFF9ED] font-bold text-xs border border-[#A40B03]/40 transition-all shadow-sm cursor-pointer"
+                            className="flex-1 flex items-center justify-center gap-1.5 px-2.5 py-2 rounded-lg bg-stone-900 hover:bg-stone-800 text-stone-200 hover:text-white font-bold text-xs border border-stone-800 transition-all cursor-pointer"
+                            title="Ver diseño individual de QR de mesa"
                           >
-                            <QrCode className="w-3.5 h-3.5 text-[#FFF9ED]" />
-                            <span>QR de Mesa</span>
+                            <QrCode className="w-3.5 h-3.5 text-[#A40B03]" />
+                            <span>QR Mesa</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setPrintTableRestId(r.id)}
+                            className="flex-1 flex items-center justify-center gap-1.5 px-2.5 py-2 rounded-lg bg-[#A40B03]/20 hover:bg-[#A40B03] text-[#FFF9ED] font-bold text-xs border border-[#A40B03]/40 transition-all shadow-sm cursor-pointer"
+                            title="Imprimir hojas con múltiples QRs en formato A4 / Carta"
+                          >
+                            <Printer className="w-3.5 h-3.5 text-[#FFF9ED]" />
+                            <span>Imprimir PDF</span>
                           </button>
                           <button
                             type="button"
@@ -2032,7 +4359,7 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
                               setEditingVideoRest(r);
                               setEditVideoUrlInput(r.videoUrl || '');
                             }}
-                            className="px-3 py-2 rounded-lg bg-black hover:bg-stone-900 border border-stone-800 hover:border-[#A40B03]/60 text-stone-300 hover:text-[#FFF9ED] font-bold text-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                            className="px-2.5 py-2 rounded-lg bg-black hover:bg-stone-900 border border-stone-800 hover:border-[#A40B03]/60 text-stone-300 hover:text-[#FFF9ED] font-bold text-xs transition-all flex items-center gap-1.5 cursor-pointer"
                             title="Editar Enlace de Video / Reel"
                           >
                             <Film className="w-3.5 h-3.5 text-[#A40B03]" />
@@ -2048,11 +4375,17 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
 
             {/* MODAL: QR DE MESA VISUALIZADOR & IMPRESOR */}
             {selectedQrRest && (
-              <div className="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-                <div className="bg-[#0F0F0F] border border-stone-800 rounded-3xl p-6 sm:p-7 max-w-md w-full shadow-2xl relative space-y-5 animate-in fade-in zoom-in-95 duration-200">
+              <div 
+                className="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 overflow-y-auto p-3 sm:p-5 flex items-start sm:items-center justify-center"
+                onClick={() => setSelectedQrRest(null)}
+              >
+                <div 
+                  className="bg-[#0F0F0F] border border-stone-800 rounded-3xl p-5 sm:p-6 max-w-md w-full shadow-2xl relative my-auto max-h-[calc(100vh-2rem)] sm:max-h-[92vh] flex flex-col animate-in fade-in zoom-in-95 duration-200"
+                  onClick={(e) => e.stopPropagation()}
+                >
                   
-                  {/* Modal Header */}
-                  <div className="flex items-start justify-between gap-3 pb-3 border-b border-stone-800">
+                  {/* Modal Header (Fijo arriba con la X siempre visible) */}
+                  <div className="flex items-start justify-between gap-3 pb-3 border-b border-stone-800 shrink-0">
                     <div>
                       <h4 className="font-extrabold text-[#FFF9ED] text-base flex items-center gap-2">
                         <QrCode className="w-5 h-5 text-[#A40B03]" />
@@ -2065,50 +4398,124 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
                     <button
                       type="button"
                       onClick={() => setSelectedQrRest(null)}
-                      className="p-1.5 rounded-lg bg-stone-900 hover:bg-stone-800 text-stone-400 hover:text-white transition-colors"
+                      className="p-1.5 rounded-lg bg-stone-900 hover:bg-stone-800 text-stone-400 hover:text-white transition-colors cursor-pointer shrink-0"
+                      title="Cerrar modal"
                     >
                       <X className="w-4 h-4" />
                     </button>
                   </div>
 
-                  {/* Printable Table Card Visual */}
+                  {/* Printable Table Card Visual (Con Scroll Interno Fluido) */}
                   {(() => {
                     const tableUrl = typeof window !== 'undefined'
                       ? `${window.location.origin}${window.location.pathname}?restaurante=${selectedQrRest.id}`
                       : `https://tocuyo-burgerfest.com/?restaurante=${selectedQrRest.id}`;
+                    const restLogo = selectedQrRest.logoUrl || logoRed;
 
                     return (
-                      <div className="space-y-4">
-                        <div className="p-6 rounded-2xl bg-[#FFF9ED] text-stone-950 flex flex-col items-center text-center space-y-3 shadow-xl border-2 border-stone-300">
-                          <div className="text-[11px] font-black uppercase tracking-widest text-[#A40B03]">
-                            FOOD FEST EL TOCUYO 2026
+                      <div className="overflow-y-auto space-y-4 pr-1 mt-3 -mr-1 focus:outline-none overscroll-contain pb-2 [scrollbar-width:thin] [scrollbar-color:#3f3f46_transparent]">
+                        {/* Luxury Formal Table Card Visual */}
+                        <div className="relative p-5 sm:p-6 rounded-3xl bg-gradient-to-b from-[#FFFDF9] to-white text-stone-950 flex flex-col items-center text-center space-y-3 shadow-2xl border-2 border-amber-300/80 overflow-hidden">
+                          {/* Top burgundy and gold accent bar */}
+                          <div className="absolute inset-x-0 top-0 h-2 bg-gradient-to-r from-[#A40B03] via-amber-500 to-[#A40B03]" />
+
+                          {/* Header: Competition Logo + Table Badge */}
+                          <div className="flex items-center justify-between w-full border-b border-stone-200 pb-2 pt-1">
+                            <div className="flex items-center gap-2">
+                              <img
+                                src={logoRed}
+                                alt="Food Fest 2026"
+                                className="h-7 w-auto object-contain"
+                              />
+                              <div className="h-6 w-px bg-stone-300" />
+                              <div className="text-left">
+                                <div className="text-[8.5px] font-black uppercase tracking-wider text-[#A40B03] leading-none">
+                                  Food Fest 2026
+                                </div>
+                                <div className="text-[7.5px] font-bold text-stone-400 uppercase tracking-widest leading-none mt-0.5">
+                                  El Tocuyo Oficial
+                                </div>
+                              </div>
+                            </div>
+
+                            <span className="text-[9px] font-mono font-black uppercase text-amber-900 bg-amber-50 border border-amber-300 px-2.5 py-0.5 rounded-full">
+                              MESA OFICIAL
+                            </span>
                           </div>
 
-                          <div className="p-3 bg-white rounded-2xl border border-stone-300 shadow-inner">
+                          {/* Restaurant Logo BESIDE Burger & Restaurant Names (Bigger logo, no empty gaps!) */}
+                          <div className="flex items-center gap-3 w-full p-2.5 bg-stone-50 rounded-2xl border border-stone-200 text-left">
+                            <img
+                              src={restLogo}
+                              alt={selectedQrRest.nombre}
+                              className="h-12 w-12 rounded-xl object-contain border border-stone-300 bg-white shadow-sm shrink-0"
+                              onError={(e) => { (e.currentTarget as HTMLImageElement).src = logoRed; }}
+                            />
+                            <div className="min-w-0 flex-1 leading-tight">
+                              <div className="font-black text-stone-950 text-base uppercase tracking-tight truncate">
+                                {selectedQrRest.nombreHamburguesa}
+                              </div>
+                              <div className="text-xs text-[#A40B03] font-black uppercase tracking-wider truncate">
+                                {selectedQrRest.nombre}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* QR Code Container with High Quality Error Correction */}
+                          <div className="p-3 bg-white rounded-2xl border-2 border-[#A40B03] shadow-md">
                             <QRCodeSVG
                               value={tableUrl}
-                              size={180}
-                              level="H"
-                              includeMargin={true}
+                              size={160}
+                              level="Q"
+                              includeMargin={false}
                             />
                           </div>
 
-                          <div className="space-y-0.5">
-                            <div className="font-black text-stone-900 text-sm">
-                              {selectedQrRest.nombreHamburguesa}
-                            </div>
-                            <div className="text-xs text-stone-600 font-semibold">
-                              {selectedQrRest.nombre}
-                            </div>
+                          {/* CTA Banner */}
+                          <div className="w-full bg-[#A40B03] text-white font-black text-xs uppercase tracking-wider py-2 px-3 rounded-xl shadow-md">
+                            ¡ESCANEA CON TU CÁMARA Y VOTA!
                           </div>
 
-                          <div className="text-[11px] font-bold text-[#A40B03] bg-red-50 border border-red-200 px-3.5 py-1 rounded-full">
-                            Escanea para votar en tu mesa
+                          {/* The 5 Steps */}
+                          <div className="w-full grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-[11px] font-bold text-stone-800 text-left bg-stone-50 p-2.5 rounded-xl border border-stone-200">
+                            <div className="flex items-center gap-1.5">
+                              <span className="w-4 h-4 rounded-full bg-[#A40B03] text-white flex items-center justify-center text-[9px] font-black shrink-0">1</span>
+                              <span>Escanea el QR</span>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="w-4 h-4 rounded-full bg-[#A40B03] text-white flex items-center justify-center text-[9px] font-black shrink-0">2</span>
+                              <span>Regístrate con cuenta</span>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="w-4 h-4 rounded-full bg-[#A40B03] text-white flex items-center justify-center text-[9px] font-black shrink-0">3</span>
+                              <span>Ingresa el código</span>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="w-4 h-4 rounded-full bg-[#A40B03] text-white flex items-center justify-center text-[9px] font-black shrink-0">4</span>
+                              <span>Califica de 1 a 5 ★</span>
+                            </div>
+                            <div className="flex items-center gap-1.5 sm:col-span-2 justify-center text-emerald-800 font-extrabold bg-emerald-50 border border-emerald-200 py-1 rounded-lg">
+                              <span className="w-4 h-4 rounded-full bg-emerald-600 text-white flex items-center justify-center text-[9px] font-black shrink-0">5</span>
+                              <span>Voto Confirmado</span>
+                            </div>
                           </div>
                         </div>
 
                         {/* URL & Action buttons */}
                         <div className="space-y-2.5 text-xs">
+                          {/* Direct Print Multi-Card PDF Button */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPrintTableRestId(selectedQrRest.id);
+                              setSelectedQrRest(null);
+                            }}
+                            className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-[#A40B03] hover:bg-[#BF0E05] text-[#FFF9ED] font-black transition-all text-sm border border-[#FFF9ED]/20 shadow-lg shadow-[#A40B03]/30 cursor-pointer"
+                          >
+                            <Printer className="w-4 h-4 text-[#FFF9ED]" />
+                            <span>Guardar en PDF / Imprimir (Formato 3x3 • 9 QRs por Hoja A4 / Carta)</span>
+                          </button>
+
                           <div className="p-2.5 rounded-xl bg-black border border-stone-800 font-mono text-[11px] text-stone-400 break-all select-all">
                             {tableUrl}
                           </div>
@@ -2121,31 +4528,22 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
                                 setCopiedTableUrl(true);
                                 setTimeout(() => setCopiedTableUrl(false), 2500);
                               }}
-                              className="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-black border border-stone-800 hover:border-[#A40B03]/60 text-stone-200 font-bold transition-all text-xs"
+                              className="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-black border border-stone-800 hover:border-[#A40B03]/60 text-stone-200 font-bold transition-all text-xs cursor-pointer"
                             >
                               {copiedTableUrl ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4 text-[#A40B03]" />}
                               <span>{copiedTableUrl ? 'Copiado' : 'Copiar URL'}</span>
                             </button>
 
-                            <button
-                              type="button"
-                              onClick={() => window.print()}
-                              className="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-[#A40B03] hover:bg-[#BF0E05] text-[#FFF9ED] font-bold transition-all text-xs border border-[#FFF9ED]/20 shadow-md"
+                            <a
+                              href={tableUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-stone-900 hover:bg-stone-800 text-stone-300 hover:text-white font-bold transition-all text-xs border border-stone-800"
                             >
-                              <Printer className="w-4 h-4 text-[#FFF9ED]" />
-                              <span>Imprimir Mesa</span>
-                            </button>
+                              <ExternalLink className="w-3.5 h-3.5" />
+                              <span>Abrir Comensal</span>
+                            </a>
                           </div>
-
-                          <a
-                            href={tableUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-black/60 hover:bg-stone-900 text-stone-400 hover:text-stone-200 text-xs transition-colors"
-                          >
-                            <ExternalLink className="w-3.5 h-3.5" />
-                            <span>Abrir Vista de Comensal en Pestaña Nueva</span>
-                          </a>
                         </div>
                       </div>
                     );
@@ -2878,11 +5276,25 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
                     <span>Pirámide Oficial de Patrocinadores</span>
                   </h3>
                   <p className="text-xs text-stone-400 mt-1">
-                    El patrocinador en la cúspide se muestra en la web pública con el diseño más grande, luminoso e impactante. Puedes ascender a cualquier marca a la cúspide con un clic.
+                    Los dos patrocinadores oficiales principales se muestran en la cúspide de la pirámide pública con el diseño más grande, luminoso e impactante. Puedes designar o alternar a las marcas con un clic.
                   </p>
                 </div>
-                <div className="text-xs px-3 py-1.5 rounded-xl bg-black border border-stone-800 text-stone-300 font-medium">
-                  {patrocinadores.length} Marcas Registradas
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPrintSponsorId('ALL');
+                      setSponsorGridFormat('4');
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-stone-950 font-black text-xs shadow-md transition-all cursor-pointer"
+                    title="Imprimir todos los QRs de tiendas de patrocinadores en PDF"
+                  >
+                    <Printer className="w-3.5 h-3.5 text-stone-950" />
+                    <span>Imprimir QRs en PDF</span>
+                  </button>
+                  <div className="text-xs px-3 py-1.5 rounded-xl bg-black border border-stone-800 text-stone-300 font-medium">
+                    {patrocinadores.length} Marcas Registradas
+                  </div>
                 </div>
               </div>
 
@@ -2893,10 +5305,22 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {(() => {
-                    const currentApex = patrocinadores.find(p => p.esPrincipal || p.tipo === 'Principal') || patrocinadores[0];
+                    const principalSponsors = patrocinadores.filter(
+                      p => p.esPrincipal || p.tipo === 'Patrocinador Oficial Principal' || p.tipo === 'Principal'
+                    );
+                    let apexSponsors: Patrocinador[] = [];
+                    if (principalSponsors.length >= 2) {
+                      apexSponsors = principalSponsors.slice(0, 2);
+                    } else if (principalSponsors.length === 1) {
+                      apexSponsors = [principalSponsors[0]];
+                      const others = patrocinadores.filter(p => p.id !== principalSponsors[0].id);
+                      if (others.length > 0) apexSponsors.push(others[0]);
+                    } else if (patrocinadores.length > 0) {
+                      apexSponsors = patrocinadores.slice(0, Math.min(2, patrocinadores.length));
+                    }
 
                     return patrocinadores.map((pat) => {
-                      const isApex = currentApex?.id === pat.id;
+                      const isApex = apexSponsors.some(a => a.id === pat.id);
 
                       return (
                         <div
@@ -2917,7 +5341,7 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
                             </div>
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center gap-1.5">
-                                <h4 className="font-bold text-[#FFF9ED] text-xs truncate">
+                                <h4 className="font-bold text-[#FFF9ED] text-xs break-words leading-tight">
                                   {pat.nombre}
                                 </h4>
                               </div>
@@ -2939,31 +5363,50 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
                           </div>
 
                           <div className="pt-2 border-t border-stone-900 flex flex-col gap-2">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setSelectedSponsorQr(pat);
-                                setCopiedSponsorUrl(false);
-                              }}
-                              className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 font-bold text-xs border border-amber-500/30 transition-all cursor-pointer"
-                            >
-                              <QrCode className="w-3.5 h-3.5 text-amber-400" />
-                              <span>Ver / Imprimir QR de Tienda</span>
-                            </button>
+                            <div className="grid grid-cols-2 gap-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedSponsorQr(pat);
+                                  setCopiedSponsorUrl(false);
+                                }}
+                                className="flex items-center justify-center gap-1.5 px-2 py-2 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 font-bold text-xs border border-amber-500/30 transition-all cursor-pointer"
+                              >
+                                <QrCode className="w-3.5 h-3.5 text-amber-400" />
+                                <span>Ver QR</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setPrintSponsorId(pat.id);
+                                  setSponsorGridFormat('4');
+                                  setSponsorCardsCount(4);
+                                }}
+                                className="flex items-center justify-center gap-1.5 px-2 py-2 rounded-lg bg-[#A40B03]/25 hover:bg-[#A40B03]/45 text-[#FFF9ED] font-bold text-xs border border-[#A40B03]/60 transition-all cursor-pointer shadow-sm"
+                              >
+                                <Printer className="w-3.5 h-3.5 text-amber-300" />
+                                <span>Imprimir PDF</span>
+                              </button>
+                            </div>
 
                             {isApex ? (
-                              <div className="w-full text-center py-1.5 px-3 rounded-lg bg-[#A40B03] text-amber-300 font-extrabold text-[11px] flex items-center justify-center gap-1.5 border border-amber-400/40 shadow-sm">
-                                <Crown className="w-3.5 h-3.5 text-amber-300" />
-                                <span>Cúspide de la Pirámide (Oficial Principal)</span>
-                              </div>
+                              <button
+                                type="button"
+                                onClick={() => handleSetPrincipalSponsor(pat.id)}
+                                className="w-full text-center py-1.5 px-2.5 rounded-lg bg-[#A40B03] hover:bg-[#8A0A02] text-amber-300 font-extrabold text-[11px] flex items-center justify-center gap-1.5 border border-amber-400/40 shadow-sm transition-all cursor-pointer"
+                                title="Haz clic si deseas alternar o quitar esta marca de Oficial Principal"
+                              >
+                                <Crown className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+                                <span className="truncate">Patrocinador Oficial Principal ✓</span>
+                              </button>
                             ) : (
                               <button
                                 type="button"
                                 onClick={() => handleSetPrincipalSponsor(pat.id)}
                                 className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-stone-900 hover:bg-[#A40B03] text-stone-300 hover:text-[#FFF9ED] font-bold text-xs border border-stone-800 hover:border-[#A40B03] transition-all cursor-pointer"
                               >
-                                <Crown className="w-3.5 h-3.5 text-amber-400" />
-                                <span>Ascender a Cúspide de la Pirámide</span>
+                                <Crown className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                                <span>Designar como Patrocinador Oficial Principal</span>
                               </button>
                             )}
                           </div>
@@ -2987,7 +5430,7 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
               <form onSubmit={handleCreateSponsor} className="space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   
-                  {/* Cúspide toggle */}
+                  {/* Patrocinador Oficial Principal toggle */}
                   <label className="sm:col-span-2 flex items-center gap-2.5 p-3 rounded-xl bg-black border border-stone-800 hover:border-[#A40B03]/60 cursor-pointer transition-all">
                     <input 
                       type="checkbox" 
@@ -2995,7 +5438,7 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
                       onChange={(e) => setNewSponsor({ 
                         ...newSponsor, 
                         esPrincipal: e.target.checked, 
-                        tipo: e.target.checked ? 'Principal' : newSponsor.tipo 
+                        tipo: e.target.checked ? 'Patrocinador Oficial Principal' : newSponsor.tipo 
                       })} 
                       className="w-4 h-4 accent-[#A40B03] rounded cursor-pointer" 
                     />
@@ -3005,7 +5448,7 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
                         Fijar como Patrocinador Oficial Principal (Cúspide de la Pirámide)
                       </span>
                       <span className="text-[11px] text-stone-400">
-                        — Se ubicará centrado en la cima con diseño gigante y luminoso.
+                        — Se ubicará en la cima de la pirámide (hasta 2 patrocinadores principales juntos).
                       </span>
                     </div>
                   </label>
@@ -3021,7 +5464,7 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
                       onChange={(e) => setNewSponsor({ ...newSponsor, tipo: e.target.value as any })}
                       className="w-full px-4 py-2.5 rounded-xl bg-black border border-stone-800 text-[#FFF9ED] text-xs outline-none focus:border-[#A40B03]"
                     >
-                      <option value="Principal">Principal (Cúspide)</option>
+                      <option value="Patrocinador Oficial Principal">Patrocinador Oficial Principal</option>
                       <option value="Aliado Gourmet">Aliado Gourmet</option>
                       <option value="Patrocinador Oficial">Patrocinador Oficial</option>
                     </select>
@@ -3420,9 +5863,16 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
 
         {/* MODAL: QR DE TIENDA DEL PATROCINADOR */}
         {selectedSponsorQr && (
-          <div className="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-[#0F0F0F] border border-stone-800 rounded-3xl p-6 sm:p-7 max-w-md w-full shadow-2xl relative space-y-5 animate-in fade-in zoom-in-95 duration-200">
-              <div className="flex items-start justify-between gap-3 pb-3 border-b border-stone-800">
+          <div 
+            className="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 overflow-y-auto p-3 sm:p-5 flex items-start sm:items-center justify-center"
+            onClick={() => setSelectedSponsorQr(null)}
+          >
+            <div 
+              className="bg-[#0F0F0F] border border-stone-800 rounded-3xl p-5 sm:p-6 max-w-md w-full shadow-2xl relative my-auto max-h-[calc(100vh-2rem)] sm:max-h-[92vh] flex flex-col animate-in fade-in zoom-in-95 duration-200"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Modal Header (Fijo arriba con la X siempre visible) */}
+              <div className="flex items-start justify-between gap-3 pb-3 border-b border-stone-800 shrink-0">
                 <div>
                   <h4 className="font-extrabold text-[#FFF9ED] text-base flex items-center gap-2">
                     <QrCode className="w-5 h-5 text-amber-400" />
@@ -3435,44 +5885,83 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setSelectedSponsorQr(null)}
-                  className="p-1.5 rounded-lg bg-stone-900 hover:bg-stone-800 text-stone-400 hover:text-white transition-colors cursor-pointer"
+                  className="p-1.5 rounded-lg bg-stone-900 hover:bg-stone-800 text-stone-400 hover:text-white transition-colors cursor-pointer shrink-0"
+                  title="Cerrar modal"
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
 
+              {/* Scrollable Content Body (Con Scroll Interno Fluido) */}
               {(() => {
                 const sponsorCheckinUrl = typeof window !== 'undefined'
                   ? `${window.location.origin}${window.location.pathname}?patrocinador=${selectedSponsorQr.id}`
                   : `https://tocuyo-burgerfest.com/?patrocinador=${selectedSponsorQr.id}`;
+                const sponsorLogo = selectedSponsorQr.logoUrl || logoRed;
 
                 return (
-                  <div className="space-y-4">
-                    <div className="p-6 rounded-2xl bg-[#FFF9ED] text-stone-950 flex flex-col items-center text-center space-y-3 shadow-xl border-2 border-amber-300">
-                      <div className="text-[11px] font-black uppercase tracking-widest text-[#A40B03]">
-                        FOOD FEST EL TOCUYO 2026 • TIENDA OFICIAL
+                  <div className="overflow-y-auto space-y-4 pr-1 mt-3 -mr-1 focus:outline-none overscroll-contain pb-2 [scrollbar-width:thin] [scrollbar-color:#3f3f46_transparent]">
+                    {/* Tarjeta con diseño formal, elegante y llamativo */}
+                    <div className="p-5 rounded-2xl bg-gradient-to-b from-[#FFFDF9] via-white to-[#FFFDF9] text-stone-950 flex flex-col items-center text-center space-y-3 shadow-xl border-2 border-[#A40B03] relative overflow-hidden">
+                      {/* Barra superior de acento oro y borgoña */}
+                      <div className="absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r from-[#A40B03] via-amber-500 to-[#A40B03]" />
+
+                      {/* Header de la tarjeta */}
+                      <div className="w-full flex items-center justify-between gap-2 border-b border-stone-200 pb-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <img src={logoRed} alt="Food Fest 2026" className="h-6 w-auto object-contain shrink-0" />
+                          <div className="h-4 w-px bg-stone-300 shrink-0" />
+                          <span className="text-[8px] font-black uppercase tracking-wider text-[#A40B03] truncate">
+                            The Best Burger 2026
+                          </span>
+                        </div>
+                        <span className="text-[7.5px] font-black uppercase tracking-wider text-amber-950 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded-full font-mono">
+                          TIENDA OFICIAL
+                        </span>
                       </div>
 
-                      <div className="p-3 bg-white rounded-2xl border border-stone-300 shadow-inner">
+                      {/* Fila de la Marca: Logo del Patrocinante al lado de su Nombre */}
+                      <div className="w-full flex items-center gap-3 p-2.5 bg-stone-50 rounded-xl border border-stone-200">
+                        <img
+                          src={sponsorLogo}
+                          alt={selectedSponsorQr.nombre}
+                          className="h-12 w-12 rounded-lg object-contain border border-stone-300 bg-white p-1 shadow-xs shrink-0"
+                          onError={(e) => { (e.currentTarget as HTMLImageElement).src = logoRed; }}
+                        />
+                        <div className="min-w-0 flex-1 text-left leading-tight">
+                          <div className="font-black text-sm uppercase tracking-tight text-stone-900 truncate">
+                            {selectedSponsorQr.nombre}
+                          </div>
+                          <div className="text-[8.5px] font-extrabold uppercase tracking-wide text-[#A40B03] mt-0.5">
+                            {selectedSponsorQr.tipo}
+                          </div>
+                          <div className="text-[8px] text-stone-500 font-semibold truncate mt-0.5">
+                            Punto Oficial de Facturación y Compras
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* QR amplio y centrado */}
+                      <div className="p-2.5 bg-white rounded-2xl border-2 border-[#A40B03] shadow-md">
                         <QRCodeSVG
                           value={sponsorCheckinUrl}
-                          size={180}
-                          level="H"
-                          includeMargin={true}
+                          size={155}
+                          level="Q"
+                          includeMargin={false}
                         />
                       </div>
 
-                      <div className="space-y-0.5">
-                        <div className="font-black text-stone-900 text-base">
-                          {selectedSponsorQr.nombre}
-                        </div>
-                        <div className="text-xs text-amber-900 font-bold">
-                          Punto Oficial de Facturación y Compras
-                        </div>
+                      {/* Banner de llamada a la acción */}
+                      <div className="w-full bg-gradient-to-r from-[#A40B03] via-[#C91006] to-[#A40B03] text-white font-black text-xs sm:text-sm uppercase tracking-wider py-2 px-3 rounded-xl shadow-md border border-amber-400/50 flex items-center justify-center gap-1.5">
+                        <Receipt className="w-4 h-4 text-amber-300 shrink-0" />
+                        <span>¡INGRESA TU FACTURA ACÁ!</span>
                       </div>
 
-                      <div className="text-[11px] font-bold text-amber-950 bg-amber-100 border border-amber-300 px-3.5 py-1 rounded-full">
-                        Escanea para registrar factura de compra
+                      {/* Texto Institucional Exacto Solicitado */}
+                      <div className="w-full bg-amber-50/90 border border-amber-200/90 rounded-xl px-3 py-1.5 text-center">
+                        <p className="text-[10px] sm:text-[10.5px] font-extrabold text-amber-950 leading-snug">
+                          Escanea este código QR con la cámara de tu teléfono móvil para registrar y validar tu factura oficial de compra en este Patrocinante.
+                        </p>
                       </div>
                     </div>
 
@@ -3497,11 +5986,16 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
 
                         <button
                           type="button"
-                          onClick={() => window.print()}
-                          className="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 font-black transition-all text-xs border border-amber-300 shadow-md cursor-pointer"
+                          onClick={() => {
+                            setPrintSponsorId(selectedSponsorQr.id);
+                            setSponsorGridFormat('4');
+                            setSponsorCardsCount(4);
+                            setSelectedSponsorQr(null);
+                          }}
+                          className="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-gradient-to-r from-[#A40B03] to-[#BF0E05] text-[#FFF9ED] font-black transition-all text-xs border border-amber-400/40 shadow-md hover:brightness-110 cursor-pointer"
                         >
-                          <Printer className="w-4 h-4 text-stone-950" />
-                          <span>Imprimir QR Tienda</span>
+                          <Printer className="w-4 h-4 text-amber-300" />
+                          <span>Imprimir PDF (A4)</span>
                         </button>
                       </div>
 

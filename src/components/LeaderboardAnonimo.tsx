@@ -3,16 +3,18 @@ import { motion } from 'motion/react';
 import gsap from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import { Restaurante } from '../types';
-import { Trophy, Flame, ShieldCheck, Lock, Star, Sparkles, Award, Crown, ShieldX, ShieldAlert } from 'lucide-react';
+import { Trophy, Flame, ShieldCheck, Lock, Star, Sparkles, Award, Crown, ShieldX, ShieldAlert, Eye, PartyPopper } from 'lucide-react';
 
 gsap.registerPlugin(ScrollTrigger);
 
 interface LeaderboardAnonimoProps {
   restaurantes: Restaurante[];
+  resultadosRevelados?: boolean;
 }
 
 export const LeaderboardAnonimo: React.FC<LeaderboardAnonimoProps> = ({
   restaurantes,
+  resultadosRevelados = false,
 }) => {
   const sectionRef = useRef<HTMLElement>(null);
 
@@ -63,27 +65,49 @@ export const LeaderboardAnonimo: React.FC<LeaderboardAnonimoProps> = ({
         
         {/* Header */}
         <div className="text-center max-w-2xl mx-auto mb-14">
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#A40B03]/15 border border-[#A40B03]/40 text-[#FFF9ED] text-xs font-bold uppercase tracking-wider mb-3 shadow-md">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <Lock className="w-3.5 h-3.5 text-[#A40B03]" />
-            <span>Mecanismo de Integridad & Transparencia 24/7</span>
-          </div>
+          {resultadosRevelados ? (
+            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-gradient-to-r from-amber-500/20 via-[#A40B03]/25 to-amber-500/20 border border-amber-500/50 text-[#FFF9ED] text-xs font-bold uppercase tracking-wider mb-3 shadow-[0_0_20px_rgba(245,158,11,0.25)]">
+              <Trophy className="w-4 h-4 text-amber-400 animate-bounce" />
+              <span>Gala Oficial Finalizada • Resultados Públicos Revelados</span>
+            </div>
+          ) : (
+            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#A40B03]/15 border border-[#A40B03]/40 text-[#FFF9ED] text-xs font-bold uppercase tracking-wider mb-3 shadow-md">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <Lock className="w-3.5 h-3.5 text-[#A40B03]" />
+              <span>Mecanismo de Integridad & Transparencia 24/7</span>
+            </div>
+          )}
           
           <h2 className="font-display text-4xl sm:text-6xl font-normal text-[#FFF9ED] tracking-wide leading-[1.02] [text-shadow:0_4px_24px_rgba(0,0,0,0.85)]">
-            Leaderboard Oficial en Vivo
+            {resultadosRevelados ? 'Cuadro de Honor & Ganadores Oficiales' : 'Leaderboard Oficial en Vivo'}
           </h2>
           
           <p className="text-stone-300 text-sm sm:text-base mt-3 leading-relaxed">
-            Para garantizar la más estricta imparcialidad gastronómica, el ranking público se presenta bajo{' '}
-            <strong className="text-[#FFF9ED]">código anónimo certificado</strong>. Los restaurantes ganadores 
-            serán develados en la Gran Gala Final del Food Fest 2026.
+            {resultadosRevelados ? (
+              <>
+                ¡El <strong className="text-amber-300">Food Fest 2026 ha concluido</strong>! Conoce las mejores propuestas gastronómicas y a los restaurantes campeones elegidos por los comensales mediante votación auditada e inmutable.
+              </>
+            ) : (
+              <>
+                Para garantizar la más estricta imparcialidad gastronómica, el ranking público se presenta bajo{' '}
+                <strong className="text-[#FFF9ED]">código anónimo certificado</strong>. Los restaurantes ganadores 
+                serán develados en la Gran Gala Final del Food Fest 2026.
+              </>
+            )}
           </p>
 
           <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
-            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-black/80 border border-[#A40B03]/40 text-xs text-[#FFF9ED] font-mono font-semibold backdrop-blur-md">
-              <Sparkles className="w-3.5 h-3.5 text-[#A40B03]" />
-              <span>Registro seguro y verificado</span>
-            </div>
+            {resultadosRevelados ? (
+              <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-amber-950/40 border border-amber-500/40 text-xs text-amber-300 font-mono font-semibold backdrop-blur-md">
+                <Crown className="w-3.5 h-3.5 text-amber-400" />
+                <span>Resultados Consolidados & Auditados Oficiales</span>
+              </div>
+            ) : (
+              <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-black/80 border border-[#A40B03]/40 text-xs text-[#FFF9ED] font-mono font-semibold backdrop-blur-md">
+                <Sparkles className="w-3.5 h-3.5 text-[#A40B03]" />
+                <span>Registro seguro y verificado</span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -91,9 +115,9 @@ export const LeaderboardAnonimo: React.FC<LeaderboardAnonimoProps> = ({
         {sorted.length >= 2 && (
           <div className="mb-14">
             <div className="text-center mb-6">
-              <span className="text-xs font-black uppercase tracking-widest text-[#A40B03] flex items-center justify-center gap-1.5">
+              <span className={`text-xs font-black uppercase tracking-widest flex items-center justify-center gap-1.5 ${resultadosRevelados ? 'text-amber-400' : 'text-[#A40B03]'}`}>
                 <Crown className="w-4 h-4" />
-                <span>Podio de Honor Provisional</span>
+                <span>{resultadosRevelados ? 'Podio Oficial de Ganadores • Food Fest 2026' : 'Podio de Honor Provisional'}</span>
               </span>
             </div>
 
@@ -114,24 +138,43 @@ export const LeaderboardAnonimo: React.FC<LeaderboardAnonimoProps> = ({
                       <div className="mb-2 flex flex-col items-center animate-bounce duration-1000">
                         <Crown className="w-7 h-7 text-amber-400 drop-shadow-[0_0_10px_rgba(251,191,36,0.6)]" />
                         <span className="text-[10px] font-black uppercase tracking-wider text-amber-400 bg-amber-950/80 px-2 py-0.5 rounded-full border border-amber-600/40">
-                          Líder
+                          {resultadosRevelados ? '¡Campeón Food Fest!' : 'Líder'}
                         </span>
                       </div>
                     )}
 
                     {/* Participant Avatar Card */}
                     <div className={`w-full p-2 sm:p-4 rounded-2xl bg-gradient-to-b from-[#1B1513] to-[#0D0D0D] border ${border} flex flex-col items-center space-y-2 mb-2 relative shadow-[0_16px_35px_rgba(0,0,0,0.55)] backdrop-blur-md`}>
-                      <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center font-black text-sm sm:text-base bg-gradient-to-br ${color} text-[#FFF9ED] shadow-md border border-[#FFF9ED]/20`}>
-                        {isLeader ? <Trophy className="w-5 h-5 text-amber-300" /> : `#${displayIndex}`}
-                      </div>
+                      
+                      {resultadosRevelados ? (
+                        <div className="relative group">
+                          <img 
+                            src={item.fotoUrl || item.logoUrl} 
+                            alt={item.nombreHamburguesa} 
+                            className="w-12 h-12 sm:w-16 sm:h-16 rounded-2xl object-cover border-2 border-amber-400/70 shadow-lg"
+                          />
+                          <div className={`absolute -bottom-2 -right-2 w-6 h-6 rounded-full flex items-center justify-center font-black text-xs bg-gradient-to-br ${color} text-[#FFF9ED] border border-white/20 shadow`}>
+                            #{rank}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center font-black text-sm sm:text-base bg-gradient-to-br ${color} text-[#FFF9ED] shadow-md border border-[#FFF9ED]/20`}>
+                          {isLeader ? <Trophy className="w-5 h-5 text-amber-300" /> : `#${displayIndex}`}
+                        </div>
+                      )}
 
                       <div className="space-y-0.5 w-full">
-                        <div className="font-extrabold text-[#FFF9ED] text-xs sm:text-sm truncate">
-                          Participante #{displayIndex}
+                        <div className="font-extrabold text-[#FFF9ED] text-xs sm:text-sm truncate" title={resultadosRevelados ? item.nombreHamburguesa : `Participante #${displayIndex}`}>
+                          {resultadosRevelados ? item.nombreHamburguesa : `Participante #${displayIndex}`}
                         </div>
-                        <div className="text-[10px] text-stone-400 font-mono">
-                          [Identidad Oculta]
+                        <div className="text-[10px] text-stone-300 font-mono truncate" title={resultadosRevelados ? item.nombre : '[Identidad Oculta]'}>
+                          {resultadosRevelados ? item.nombre : '[Identidad Oculta]'}
                         </div>
+                        {resultadosRevelados && item.instagram && (
+                          <div className="text-[9px] text-[#A40B03] font-bold font-mono truncate">
+                            {item.instagram}
+                          </div>
+                        )}
                       </div>
 
                       <div className="flex items-center gap-1 bg-black/80 px-2.5 py-1 rounded-lg border border-stone-800 text-xs font-black text-[#FFF9ED]">
@@ -173,7 +216,11 @@ export const LeaderboardAnonimo: React.FC<LeaderboardAnonimoProps> = ({
           return (
             <div className="space-y-3.5">
               <div className="flex items-center justify-between pb-2 border-b border-stone-800 text-xs font-bold text-stone-400 uppercase tracking-wider px-2">
-                <span>{isPodiumActive ? 'Siguientes Posiciones en Competencia (#4 en adelante)' : 'Clasificación General Auditada'}</span>
+                <span>
+                  {resultadosRevelados 
+                    ? (isPodiumActive ? 'Cuadro Clasificatorio Oficial (#4 en adelante)' : 'Clasificación General Final') 
+                    : (isPodiumActive ? 'Siguientes Posiciones en Competencia (#4 en adelante)' : 'Clasificación General Auditada')}
+                </span>
                 <span>Rendimiento & Calificación</span>
               </div>
 
@@ -185,7 +232,11 @@ export const LeaderboardAnonimo: React.FC<LeaderboardAnonimoProps> = ({
                   <div
                     key={item.id}
                     data-rank-item
-                    className="relative rounded-2xl p-4 sm:p-5 transition-[border-color,box-shadow] duration-300 border bg-gradient-to-r from-[#15100F] to-black border-stone-800/80 hover:border-[#D6A44B]/35 shadow-[0_12px_30px_rgba(0,0,0,0.35)] will-change-transform"
+                    className={`relative rounded-2xl p-4 sm:p-5 transition-[border-color,box-shadow] duration-300 border bg-gradient-to-r from-[#15100F] to-black will-change-transform ${
+                      resultadosRevelados 
+                        ? 'border-stone-800 hover:border-amber-500/40 shadow-[0_12px_30px_rgba(0,0,0,0.4)]' 
+                        : 'border-stone-800/80 hover:border-[#D6A44B]/35 shadow-[0_12px_30px_rgba(0,0,0,0.35)]'
+                    }`}
                   >
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                       
@@ -195,17 +246,31 @@ export const LeaderboardAnonimo: React.FC<LeaderboardAnonimoProps> = ({
                           #{rankNumber}
                         </div>
 
+                        {resultadosRevelados && (item.fotoUrl || item.logoUrl) && (
+                          <img 
+                            src={item.fotoUrl || item.logoUrl} 
+                            alt={item.nombreHamburguesa} 
+                            className="w-12 h-12 sm:w-14 sm:h-14 rounded-xl object-cover border border-stone-800 shrink-0"
+                          />
+                        )}
+
                         <div>
-                          <div className="flex items-center gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
                             <h3 className="font-display text-xl sm:text-2xl font-normal tracking-wide text-[#FFF9ED]">
-                              Participante #{rankNumber}
+                              {resultadosRevelados ? item.nombreHamburguesa : `Participante #${rankNumber}`}
                             </h3>
-                            <span className="text-[10px] px-2 py-0.5 rounded-md bg-stone-950 border border-stone-800 text-stone-400 font-mono font-medium">
-                              [Identidad Oculta]
-                            </span>
+                            {resultadosRevelados ? (
+                              <span className="text-[11px] px-2.5 py-0.5 rounded-md bg-[#A40B03]/20 border border-[#A40B03]/40 text-[#FFF9ED] font-bold">
+                                {item.nombre}
+                              </span>
+                            ) : (
+                              <span className="text-[10px] px-2 py-0.5 rounded-md bg-stone-950 border border-stone-800 text-stone-400 font-mono font-medium">
+                                [Identidad Oculta]
+                              </span>
+                            )}
                           </div>
                           <p className="text-[11px] text-stone-400 mt-0.5">
-                            Posición #{rankNumber} en Competencia Oficial
+                            {resultadosRevelados && item.instagram ? item.instagram : `Posición #${rankNumber} en Competencia Oficial`}
                           </p>
                         </div>
                       </div>
@@ -234,7 +299,7 @@ export const LeaderboardAnonimo: React.FC<LeaderboardAnonimoProps> = ({
                         whileInView={{ width: `${Math.min(100, ((item.votosCount === 0 ? 0 : item.promedioRating) / 5) * 100)}%` }}
                         viewport={{ once: true }}
                         transition={{ duration: 0.8, ease: 'easeOut' }}
-                        className="h-full rounded-full bg-stone-700"
+                        className={`h-full rounded-full ${resultadosRevelados ? 'bg-gradient-to-r from-[#A40B03] to-amber-500' : 'bg-stone-700'}`}
                       />
                     </div>
 
@@ -249,7 +314,7 @@ export const LeaderboardAnonimo: React.FC<LeaderboardAnonimoProps> = ({
         <div className="mt-10 p-5 rounded-2xl bg-black border border-stone-800/90 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-stone-400 shadow-md">
           <div className="flex items-center gap-2.5">
             <ShieldCheck className="w-5 h-5 text-[#A40B03] shrink-0" />
-            <span>Actualizado automáticamente con cada transacción.</span>
+            <span>{resultadosRevelados ? 'Resultados oficiales certificados por el Comité de Integridad Gastronómica.' : 'Actualizado automáticamente con cada transacción.'}</span>
           </div>
           <div className="flex items-center gap-1.5 text-stone-300 font-medium">
             <Flame className="w-4 h-4 text-[#A40B03]" />

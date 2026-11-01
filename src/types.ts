@@ -89,7 +89,7 @@ export interface Patrocinador {
   id: string;
   nombre: string;
   logoUrl: string;
-  tipo: 'Principal' | 'Aliado Gourmet' | 'Patrocinador Oficial';
+  tipo: 'Patrocinador Oficial Principal' | 'Principal' | 'Aliado Gourmet' | 'Patrocinador Oficial';
   descripcion: string;
   url?: string;
   esPrincipal?: boolean;
@@ -101,4 +101,6 @@ export interface EstadisticasEvento {
   totalCodigosUsados: number;
   promedioGlobal: number;
   intentosFraudeBloqueados: number;
+  resultadosRevelados?: boolean;
+  fechaRevelacion?: string;
 }
