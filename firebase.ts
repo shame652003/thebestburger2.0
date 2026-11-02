@@ -5,13 +5,13 @@ import { getStorage } from "firebase/storage";
 import { getAuth, GoogleAuthProvider } from "firebase/auth";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyBgLdheL9XwDsw5Nxg813xDPFMkPj_9CNU",
-  authDomain: "thebestburger-69e44.firebaseapp.com",
-  projectId: "thebestburger-69e44",
-  storageBucket: "thebestburger-69e44.firebasestorage.app",
-  messagingSenderId: "979994349638",
-  appId: "1:979994349638:web:da8698d01343011d37ba47",
-  measurementId: "G-LE4R8R8VJB"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
 };
 
 // Inicializar Firebase
