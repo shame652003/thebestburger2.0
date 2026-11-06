@@ -19,6 +19,7 @@ import {
   loginWithGoogle,
   logoutFirebase,
   onAuthChange,
+  purgeAdminLeftoverComensal,
   subscribeStatsFirebase
 } from './services/firebaseService';
 
@@ -95,6 +96,10 @@ export default function App() {
     const unsubscribeAuth = onAuthChange((user) => {
       setCurrentUser(user);
     });
+
+    // Purga anti-residuo: si localStorage contiene una cuenta del comité como
+    // comensal (estado heredado de versiones previas), se limpia al arrancar
+    purgeAdminLeftoverComensal();
 
     // Escucha en tiempo real del estado de estadísticas y revelación de la gala
     const unsubscribeStats = subscribeStatsFirebase((newStats) => {

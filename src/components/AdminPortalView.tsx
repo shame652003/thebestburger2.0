@@ -2661,7 +2661,7 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
                   <div className="h-7 w-px bg-stone-300 shrink-0" />
                   <div className="min-w-0 leading-tight">
                     <div className="text-[9px] font-black uppercase tracking-[0.2em] text-[#A40B03] leading-none">
-                      The Best Burger 2026 • El Tocuyo
+                      Food Fest 2026 • El Tocuyo
                     </div>
                     <div className="text-sm font-black text-stone-900 leading-tight truncate">
                       Punto Oficial de Facturación de Tienda Patrocinadora
@@ -2713,7 +2713,7 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
                             <div className="h-8 w-px bg-stone-300 shrink-0" />
                             <div>
                               <div className="text-[9px] font-black uppercase tracking-[0.25em] text-[#A40B03] leading-none">
-                                The Best Burger 2026 • El Tocuyo
+                                Food Fest 2026 • El Tocuyo
                               </div>
                               <div className="text-base font-black text-stone-900 leading-tight">
                                 TIENDA PATROCINADORA AUTORIZADA

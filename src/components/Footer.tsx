@@ -43,7 +43,7 @@ export const Footer: React.FC<FooterProps> = () => {
 
         <div className="pt-6 border-t border-stone-900 flex flex-col sm:flex-row items-center justify-between gap-3 text-stone-500 text-[11px]">
           <div>
-            © {new Date().getFullYear()} Food Fest El Tocuyo 2026. Todos los derechos reservados.
+            © {new Date().getFullYear()} Food Fest El Tocuyo 2026. Todos los derechos reservados. Ing. Samuel Pereira
           </div>
           
           <div className="flex items-center gap-4">

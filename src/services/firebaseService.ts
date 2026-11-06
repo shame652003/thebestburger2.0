@@ -31,7 +31,10 @@ import {
   reauthenticateWithCredential
 } from "firebase/auth";
 import { Voto, CriteriosVoto, Restaurante, Patrocinador, EstadisticasEvento, CodigoVoto, UsuarioAuth, RegistroCompraPatrocinador } from "../types";
-export const convertImageToBase64 = (file: File, maxWidth = 800): Promise<string> => {
+export const convertImageToBase64 = (file: File, maxWidth = 1000): Promise<string> => {
+  // Firestore limita 1 documento a 1,048,576 bytes: se comprime iterativamente
+  // hasta asegurar que el dataURL final quepa sin disparar ese error.
+  const MAX_DATAURL_CHARS = 900000;
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.readAsDataURL(file);
@@ -40,21 +43,42 @@ export const convertImageToBase64 = (file: File, maxWidth = 800): Promise<string
       img.src = event.target?.result as string;
       img.onload = () => {
         const canvas = document.createElement('canvas');
-        let width = img.width;
-        let height = img.height;
+        const baseWidth = Math.min(img.width, maxWidth);
+        const baseHeight = Math.round((img.height * baseWidth) / img.width);
+        const ctx = canvas.getContext('2d');
 
-        if (width > maxWidth) {
-          height = Math.round((height * maxWidth) / width);
-          width = maxWidth;
+        const comprimar = (width: number, height: number, quality: number): string => {
+          canvas.width = width;
+          canvas.height = height;
+          const c = canvas.getContext('2d');
+          c?.drawImage(img, 0, 0, width, height);
+          return canvas.toDataURL('image/jpeg', quality);
+        };
+
+        // Escalas descendentes y calidades, de mayor a menor, hasta caber bajo el límite
+        const escalas = [1, 0.85, 0.7, 0.6, 0.5];
+        const calidades = [0.7, 0.6, 0.5, 0.4, 0.3];
+
+        let resultado = '';
+        outer:
+        for (const escala of escalas) {
+          const width = Math.max(320, Math.round(baseWidth * escala));
+          const height = Math.max(320, Math.round(baseHeight * escala));
+          for (const quality of calidades) {
+            const dataUrl = ctx ? comprimar(width, height, quality) : '';
+            if (dataUrl.length <= MAX_DATAURL_CHARS) {
+              resultado = dataUrl;
+              break outer;
+            }
+            resultado = dataUrl;
+          }
         }
 
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        ctx?.drawImage(img, 0, 0, width, height);
-        
-        // Comprimir a JPEG con calidad 0.7 para que pese muy poco (ideal para Firestore)
-        resolve(canvas.toDataURL('image/jpeg', 0.7));
+        if (!resultado) {
+          reject(new Error('No se pudo comprimir la imagen de la factura.'));
+          return;
+        }
+        resolve(resultado);
       };
       img.onerror = (error) => reject(error);
     };
@@ -80,6 +104,34 @@ const STATS_DOC_ID = "global_stats";
 // ==========================================
 
 const LOCAL_STORAGE_USER_KEY = "foodfest_comensal_user";
+const ADMIN_MODE_KEY = "foodfest_admin_mode";
+const PUBLIC_SESSION_DURATION_MS = 24 * 60 * 60 * 1000; // Sesión pública fija: 24h desde el login
+
+// Desacoplo de sesiones: sí; mientras el comité tenga sesión activa, su cuenta
+// NUNCA se expone como comensal público (Navbar/votación) en este navegador.
+let isAdminActive = (() => {
+  try {
+    return typeof localStorage !== 'undefined' && localStorage.getItem(ADMIN_MODE_KEY) === 'true';
+  } catch {
+    return false;
+  }
+})();
+
+export const setAdminModeActive = (active: boolean): void => {
+  isAdminActive = active;
+  try {
+    if (typeof localStorage !== 'undefined') {
+      if (active) {
+        localStorage.setItem(ADMIN_MODE_KEY, 'true');
+      } else {
+        localStorage.removeItem(ADMIN_MODE_KEY);
+      }
+    }
+  } catch {}
+};
+
+export const getAdminModeActive = (): boolean => isAdminActive;
+
 const authSubscribers: Array<(user: UsuarioAuth | null) => void> = [];
 
 const notifyAuthSubscribers = (user: UsuarioAuth | null) => {
@@ -88,7 +140,7 @@ const notifyAuthSubscribers = (user: UsuarioAuth | null) => {
   });
 };
 
-export const getStoredComensalUser = (): UsuarioAuth | null => {
+const getRawStoredUser = (): UsuarioAuth | null => {
   try {
     const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(LOCAL_STORAGE_USER_KEY) : null;
     return raw ? JSON.parse(raw) : null;
@@ -97,16 +149,52 @@ export const getStoredComensalUser = (): UsuarioAuth | null => {
   }
 };
 
+export const getStoredComensalUser = (): UsuarioAuth | null => {
+  const user = getRawStoredUser();
+  if (!user) return null;
+  // Expiración fija de 24h desde el login: al vencer, la sesión pública se limpia
+  if (user.sesionExpiraEn && Date.now() > user.sesionExpiraEn) {
+    setStoredComensalUser(null);
+    return null;
+  }
+  return user;
+};
+
 export const setStoredComensalUser = (user: UsuarioAuth | null): void => {
   try {
     if (typeof localStorage !== 'undefined') {
       if (user) {
-        localStorage.setItem(LOCAL_STORAGE_USER_KEY, JSON.stringify(user));
+        const withExpiry: UsuarioAuth = user.sesionExpiraEn
+          ? user
+          : { ...user, sesionExpiraEn: Date.now() + PUBLIC_SESSION_DURATION_MS };
+        localStorage.setItem(LOCAL_STORAGE_USER_KEY, JSON.stringify(withExpiry));
       } else {
         localStorage.removeItem(LOCAL_STORAGE_USER_KEY);
       }
     }
   } catch {}
+};
+
+// Verifica si un uid pertenece a la lista blanca protegida del comité (admins/{uid})
+export const isAdminUidFirebase = async (uid: string): Promise<boolean> => {
+  try {
+    const adminSnap = await getDoc(doc(db, "admins", uid));
+    return adminSnap.exists() && adminSnap.data()?.activo !== false;
+  } catch {
+    return false;
+  }
+};
+
+// Limpia residuos históricos: si hay un comensal guardado cuyo uid es del comité,
+// se purga de localStorage (la sesión de Auth del portal no se toca).
+export const purgeAdminLeftoverComensal = async (): Promise<void> => {
+  const stored = getRawStoredUser();
+  if (!stored?.uid) return;
+  const esAdmin = await isAdminUidFirebase(stored.uid);
+  if (esAdmin) {
+    setStoredComensalUser(null);
+    notifyAuthSubscribers(null);
+  }
 };
 
 export const loginWithGoogle = async (preferRedirect = false): Promise<{ success: boolean; user?: UsuarioAuth; error?: string; code?: string }> => {
@@ -383,6 +471,9 @@ export const loginAdminFirebase = async (
   }
 
   try {
+    // Marcar modo comité ANTES del sign-in: evita que el listener de Auth exponga
+    // esta cuenta del comité como comensal público en el Navbar/votación.
+    setAdminModeActive(true);
     const cred = await signInWithEmailAndPassword(auth, cleanEmail, password);
     const u = cred.user;
 
@@ -402,6 +493,7 @@ export const loginAdminFirebase = async (
     if (!adminSnap.exists() || adminSnap.data()?.activo === false) {
       await logFraudAttempt("ACCESO_ADMIN_NO_AUTORIZADO", cleanEmail, "PORTAL_COMITE");
       await signOut(auth);
+      setAdminModeActive(false);
       setStoredComensalUser(null);
       notifyAuthSubscribers(null);
       return {
@@ -412,6 +504,9 @@ export const loginAdminFirebase = async (
     }
 
     const data = adminSnap.data();
+    // Sesión de comité activa: el público queda cerrado en este navegador
+    setStoredComensalUser(null);
+    notifyAuthSubscribers(null);
     return {
       success: true,
       uid: u.uid,
@@ -419,6 +514,10 @@ export const loginAdminFirebase = async (
       rol: data?.rol || "superadmin"
     };
   } catch (error: any) {
+    // Solo desactivar el modo comité si realmente NO quedó sesión iniciada
+    if (!auth.currentUser) {
+      setAdminModeActive(false);
+    }
     const code = error.code || "";
     if (code === "auth/too-many-requests") {
       return {
@@ -449,6 +548,7 @@ export const verifyAdminSessionFirebase = async (expectedUid: string): Promise<b
 
 export const logoutAdminFirebase = async (): Promise<void> => {
   try {
+    setAdminModeActive(false);
     setStoredComensalUser(null);
     await signOut(auth);
     notifyAuthSubscribers(null);
@@ -498,15 +598,27 @@ export const onAuthChange = (callback: (user: UsuarioAuth | null) => void) => {
   authSubscribers.push(callback);
 
   // 1. Notificar inmediatamente si ya hay un usuario guardado localmente
-  const stored = getStoredComensalUser();
-  if (stored) {
-    callback(stored);
+  //    (mientras el comité tenga sesión, el público se reporta como cerrado)
+  if (!isAdminActive) {
+    const stored = getStoredComensalUser();
+    if (stored) {
+      // Gate anti-residuo: si el guardado es en realidad una cuenta del comité
+      // (estado heredado de versiones previas), se purga y se notifica cierre.
+      isAdminUidFirebase(stored.uid).then((esAdmin) => {
+        if (esAdmin) {
+          setStoredComensalUser(null);
+          notifyAuthSubscribers(null);
+          return;
+        }
+        callback(stored);
+      }).catch(() => callback(stored));
+    }
   }
 
   // 2. Comprobar resultado de redirección de Firebase (si regresó de Google en móvil)
   if (typeof window !== 'undefined') {
     getRedirectResult(auth).then((result) => {
-      if (result?.user) {
+      if (result?.user && !isAdminActive) {
         const u = result.user;
         const usuarioAuth: UsuarioAuth = {
           uid: u.uid,
@@ -525,16 +637,45 @@ export const onAuthChange = (callback: (user: UsuarioAuth | null) => void) => {
 
   // 3. Escuchar cambios de estado en Firebase Auth
   const unsubscribeFirebase = onAuthStateChanged(auth, (firebaseUser) => {
+    if (firebaseUser && isAdminActive) {
+      // Sesión del comité activa: esa cuenta no se expone como comensal público
+      return;
+    }
+
     if (firebaseUser) {
-      const usuarioAuth: UsuarioAuth = {
-        uid: firebaseUser.uid,
-        email: firebaseUser.email,
-        displayName: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || "Comensal Food Fest",
-        photoURL: firebaseUser.photoURL,
-        emailVerified: firebaseUser.emailVerified ?? false
-      };
-      setStoredComensalUser(usuarioAuth);
-      callback(usuarioAuth);
+      // Gate definitivo por uid: aunque la flag no esté activa (p. ej. residuo
+      // de una sesión anterior), una cuenta de la lista de comité NUNCA se
+      // expone como comensal público. No se hace signOut para no romper la
+      // restauración de sesión del portal del comité.
+      isAdminUidFirebase(firebaseUser.uid).then((esAdmin) => {
+        if (esAdmin) {
+          if (getRawStoredUser()?.uid === firebaseUser.uid) {
+            setStoredComensalUser(null);
+            notifyAuthSubscribers(null);
+          }
+          return;
+        }
+
+        // Expiración fija de 24h: si la sesión pública previa venció, cerrar la
+        // sesión persistente real de Firebase en lugar de renovar la expiración
+        const previous = getRawStoredUser();
+        if (previous?.sesionExpiraEn && Date.now() > previous.sesionExpiraEn) {
+          setStoredComensalUser(null);
+          notifyAuthSubscribers(null);
+          signOut(auth).catch((e) => console.error("Cerrar sesión pública expirada:", e));
+          return;
+        }
+
+        const usuarioAuth: UsuarioAuth = {
+          uid: firebaseUser.uid,
+          email: firebaseUser.email,
+          displayName: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || "Comensal Food Fest",
+          photoURL: firebaseUser.photoURL,
+          emailVerified: firebaseUser.emailVerified ?? false
+        };
+        setStoredComensalUser(usuarioAuth);
+        callback(usuarioAuth);
+      }).catch((e) => console.error("Validando uid en Auth:", e));
     } else {
       const currentStored = getStoredComensalUser();
       if (!currentStored) {
@@ -1111,28 +1252,77 @@ export const setPatrocinadorPrincipalFirebase = async (patrocinadorId: string): 
 export const loginRestauranteCredenciales = async (
   usuario: string,
   clave: string
-): Promise<{ success: boolean; restaurante?: Restaurante; error?: string }> => {
-  try {
-    const cleanUser = usuario.trim().toLowerCase();
-    const cleanPass = clave.trim();
+): Promise<{ success: boolean; restaurante?: Restaurante; error?: string; lockedSeconds?: number }> => {
+  const cleanUser = usuario.trim().toLowerCase();
+  const cleanPass = clave.trim();
 
-    if (!cleanUser || !cleanPass) {
-      return { success: false, error: "Por favor ingresa usuario y clave de acceso." };
+  if (!cleanUser || !cleanPass) {
+    return { success: false, error: "Por favor ingresa usuario y clave de acceso." };
+  }
+
+  // Protección anti-fuerza-bruta (client-side, espejo del portal del comité):
+  // contador por devolución + bloqueo temporal de 60s tras 5 intentos fallidos.
+  const REST_LOCKOUT_KEY = "foodfest_rest_lockout";
+  const REST_ATTEMPTS_KEY = "foodfest_rest_failed_attempts";
+  const MAX_REST_LOGIN_ATTEMPTS = 5;
+  const REST_LOCKOUT_MS = 60 * 1000;
+
+  try {
+    const lockRaw = sessionStorage.getItem(REST_LOCKOUT_KEY);
+    if (lockRaw) {
+      const until = Number(lockRaw);
+      const remaining = Math.ceil((until - Date.now()) / 1000);
+      if (remaining > 0) {
+        return {
+          success: false,
+          lockedSeconds: remaining,
+          error: `Demasiados intentos fallidos. Acceso bloqueado temporalmente por seguridad (${remaining}s).`
+        };
+      }
+      sessionStorage.removeItem(REST_LOCKOUT_KEY);
+      sessionStorage.removeItem(REST_ATTEMPTS_KEY);
     }
 
     const restaurantes = await getRestaurantesFirebase();
-    
-    // Buscar coincidencia directa por usuarioAcceso y claveAcceso, con fallback intuitivo
+
+    // Validación estricta: solo se aceptan las credenciales EXPLÍCITAS
+    // (usuarioAcceso / claveAcceso) asignadas por el comité al restaurante.
+    // Sin fallbacks inseguros (nombre derivado / clave por defecto).
     const match = restaurantes.find(r => {
-      const defaultUser = r.nombre.toLowerCase().replace(/[^a-z0-9]/g, '');
-      const u = (r.usuarioAcceso || defaultUser).toLowerCase();
-      const p = (r.claveAcceso || 'burger2026');
-      return u === cleanUser && p === cleanPass;
+      if (!r.usuarioAcceso || !r.claveAcceso) return false;
+      return (
+        r.usuarioAcceso.trim().toLowerCase() === cleanUser &&
+        r.claveAcceso.trim() === cleanPass
+      );
     });
 
     if (!match) {
+      await logFraudAttempt("LOGIN_RESTAURANTE_FALLIDO", cleanUser, "TIENDA_PATROCINADOR");
+
+      const failed = Number(sessionStorage.getItem(REST_ATTEMPTS_KEY) || '0') + 1;
+      try {
+        sessionStorage.setItem(REST_ATTEMPTS_KEY, String(failed));
+      } catch {}
+
+      if (failed >= MAX_REST_LOGIN_ATTEMPTS) {
+        const until = Date.now() + REST_LOCKOUT_MS;
+        sessionStorage.setItem(REST_LOCKOUT_KEY, String(until));
+        sessionStorage.removeItem(REST_ATTEMPTS_KEY);
+        return {
+          success: false,
+          lockedSeconds: Math.ceil(REST_LOCKOUT_MS / 1000),
+          error: "Demasiados intentos fallidos. Acceso bloqueado durante 60 segundos por seguridad."
+        };
+      }
+
       return { success: false, error: "Credenciales inválidas. Verifica tu usuario y clave asignados por el comité." };
     }
+
+    // Login correcto: reiniciar contador de intentos fallidos
+    try {
+      sessionStorage.removeItem(REST_ATTEMPTS_KEY);
+      sessionStorage.removeItem(REST_LOCKOUT_KEY);
+    } catch {}
 
     if (match.descalificado) {
       return { success: false, error: "Tu restaurante se encuentra temporalmente descalificado de la competición." };

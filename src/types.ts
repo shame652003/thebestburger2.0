@@ -39,6 +39,8 @@ export interface RegistroCompraPatrocinador {
   monto?: string;
   numeroFactura?: string;
   facturaFotoUrl?: string;
+  ocrValidado?: boolean;
+  ocrTexto?: string;
   fecha: string;
   creadoEn?: any;
 }
@@ -60,6 +62,7 @@ export interface UsuarioAuth {
   displayName: string | null;
   photoURL?: string | null;
   emailVerified?: boolean;
+  sesionExpiraEn?: number;
 }
 
 export interface VotoUsuarioRegistro {
